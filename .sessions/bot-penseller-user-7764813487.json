@@ -1,0 +1,79 @@
+{
+  "sessionId": "bot-penseller-user-7764813487",
+  "botId": "penseller",
+  "telegramUserId": 7764813487,
+  "currentUuid": "11d13108-b8ef-422c-b460-5c0db0aa536d",
+  "createdAt": "2025-10-30T00:52:39.466Z",
+  "messageCount": 2,
+  "uuidHistory": [
+    {
+      "uuid": "045ffa16-5e7a-4d82-abba-c4d0eae1bd6a",
+      "rotatedAt": "2025-10-31T03:49:58.758Z",
+      "messageCount": 45,
+      "reason": "auto-rotation"
+    }
+  ],
+  "updatedAt": "2025-10-31T05:14:37.604Z",
+  "ttsEnabled": true,
+  "lastMessageTime": 1761887298795,
+  "nudgeHistory": [
+    {
+      "timestamp": 1761873585644,
+      "delayHours": 0.0833,
+      "message": "Still there? Last pen left at this price - speak now or miss out!",
+      "userResponded": true,
+      "stopSequence": false
+    },
+    {
+      "timestamp": 1761874065721,
+      "delayHours": 0.0833,
+      "message": "You change your mind? This pen's still here, but not for long!",
+      "userResponded": true,
+      "stopSequence": false
+    },
+    {
+      "timestamp": 1761874731761,
+      "delayHours": 0.0833,
+      "message": "One last time - you sure you don't want this pen before it's gone?",
+      "userResponded": true,
+      "stopSequence": false
+    },
+    {
+      "timestamp": 1761875565611,
+      "delayHours": 0.0833,
+      "message": "Hey, you good? Pen offer still stands if you need it!",
+      "userResponded": true,
+      "stopSequence": false
+    },
+    {
+      "timestamp": 1761878814805,
+      "delayHours": 0.0833,
+      "message": "Still awake? This pen won't be available much longer - grab it now!",
+      "userResponded": false,
+      "stopSequence": false
+    },
+    {
+      "timestamp": 1761878815929,
+      "delayHours": 0.0833,
+      "message": "Quick check-in - this pen's moving fast, last chance to grab it!",
+      "userResponded": true,
+      "stopSequence": false
+    },
+    {
+      "timestamp": 1761883204745,
+      "delayHours": 0.0833,
+      "message": "Still there? Don't miss out on the pen that writes your success story.",
+      "userResponded": true,
+      "stopSequence": false
+    },
+    {
+      "timestamp": 1761887677604,
+      "delayHours": 0.0833,
+      "message": "Clock's ticking - this no-leak guarantee won't be around forever.",
+      "userResponded": false,
+      "stopSequence": false
+    }
+  ],
+  "lastNudgeSent": 0.0833,
+  "rotatedAt": "2025-10-31T03:49:58.758Z"
+}

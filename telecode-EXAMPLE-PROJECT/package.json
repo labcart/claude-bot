@@ -1,0 +1,23 @@
+{
+  "name": "telegram-claude-relay",
+  "version": "1.0.0",
+  "description": "Telegram relay bridge for Claude Code",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "diff": "^8.0.2",
+    "dotenv": "^17.2.3",
+    "input": "^1.0.1",
+    "node-pty": "^1.0.0",
+    "node-telegram-bot-api": "^0.66.0",
+    "playwright": "^1.56.1",
+    "robotjs": "^0.6.0",
+    "strip-ansi": "^7.1.2",
+    "telegram": "^2.26.22"
+  }
+}

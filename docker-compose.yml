@@ -1,0 +1,44 @@
+# Docker Compose for Claude Bot Platform
+# Makes it easy to run with proper volume mounts
+
+version: '3.8'
+
+services:
+  claude-bot:
+    build: .
+    container_name: claude-bot-platform
+    restart: unless-stopped
+
+    # Port mapping (if bot manager has API)
+    ports:
+      - "3000:3000"
+
+    # Volume mounts for persistence
+    volumes:
+      # Claude auth token (so login persists)
+      - ~/.claude:/root/.claude
+
+      # Session files (conversation history)
+      - ./sessions:/app/sessions
+
+      # Bot configurations (if dynamically created)
+      - ./brains:/app/brains
+
+      # Logs (optional)
+      - ./logs:/app/logs
+
+    # Environment variables
+    environment:
+      - DISPLAY=:99
+      - NODE_ENV=production
+
+    # Load .env file (for bot tokens, etc.)
+    env_file:
+      - .env
+
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

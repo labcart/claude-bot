@@ -1,0 +1,29 @@
+{
+  "sessionId": "bot-priest-user-7764813487",
+  "botId": "priest",
+  "telegramUserId": 7764813487,
+  "currentUuid": "4e490746-09cc-4551-919a-bee54c524099",
+  "createdAt": "2025-10-30T00:53:49.726Z",
+  "messageCount": 4,
+  "uuidHistory": [
+    {
+      "uuid": "99dec7f6-f808-472d-b963-203762eb6735",
+      "resetAt": "2025-10-30T01:35:29.480Z",
+      "messageCount": 17
+    },
+    {
+      "uuid": "b5beda49-b364-4b44-8def-cd18c5dc78c3",
+      "resetAt": "2025-10-30T12:55:57.038Z",
+      "messageCount": 49
+    },
+    {
+      "uuid": "b0ecc360-c586-448f-8978-07cb52aa823a",
+      "rotatedAt": "2025-10-31T03:43:01.018Z",
+      "messageCount": 71,
+      "reason": "auto-rotation"
+    }
+  ],
+  "updatedAt": "2025-10-31T13:49:39.834Z",
+  "lastMessageTime": 1761918579834,
+  "rotatedAt": "2025-10-31T03:43:01.018Z"
+}

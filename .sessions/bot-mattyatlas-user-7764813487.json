@@ -1,0 +1,104 @@
+{
+  "sessionId": "bot-mattyatlas-user-7764813487",
+  "botId": "mattyatlas",
+  "telegramUserId": 7764813487,
+  "currentUuid": null,
+  "createdAt": "2025-10-29T23:20:41.966Z",
+  "messageCount": 1,
+  "uuidHistory": [
+    {
+      "uuid": "b902c7a6-da11-4a21-ab92-a2db8c0c2f85",
+      "resetAt": "2025-10-30T04:27:05.258Z",
+      "messageCount": 4
+    },
+    {
+      "uuid": "8ce73224-e686-4f72-9116-bcb8902b1294",
+      "resetAt": "2025-10-30T05:02:01.178Z",
+      "messageCount": 11
+    },
+    {
+      "uuid": "61e16056-ec11-48a0-b145-7a7c8cd9524b",
+      "resetAt": "2025-10-30T05:34:51.724Z",
+      "messageCount": 17
+    },
+    {
+      "uuid": "6fc69db5-a295-4c0b-9790-a3db8431e11f",
+      "resetAt": "2025-10-30T14:22:10.420Z",
+      "messageCount": 46
+    },
+    {
+      "uuid": "ecba6da3-53e1-4bc3-ad0d-3b7203b356a2",
+      "resetAt": "2025-10-30T14:26:49.511Z",
+      "messageCount": 48
+    },
+    {
+      "uuid": "818488a0-0825-49c9-98bc-cb5c4c081629",
+      "resetAt": "2025-10-30T14:29:54.963Z",
+      "messageCount": 49
+    },
+    {
+      "uuid": "8cf3e30a-9db6-4301-bb70-338f1cf81506",
+      "resetAt": "2025-10-30T16:38:17.481Z",
+      "messageCount": 69
+    },
+    {
+      "uuid": "37460cd1-d62a-482f-ab92-519096b70b6d",
+      "resetAt": "2025-10-30T19:56:23.337Z",
+      "messageCount": 79
+    },
+    {
+      "uuid": "8abacbcd-8dd3-4d6e-8f20-d491a11d6891",
+      "rotatedAt": "2025-10-31T02:45:10.676Z",
+      "messageCount": 100,
+      "reason": "auto-rotation"
+    },
+    {
+      "uuid": "a51bcd49-1d02-4c9d-b741-a689b83300e5",
+      "resetAt": "2025-10-31T02:50:06.557Z",
+      "messageCount": 3
+    },
+    {
+      "uuid": "9fee9c4d-a4f5-47c1-aca4-c7483cab87c0",
+      "rotatedAt": "2025-10-31T03:30:35.495Z",
+      "messageCount": 6,
+      "reason": "auto-rotation"
+    },
+    {
+      "uuid": "12fdd47e-0d13-4917-97a5-8e64d43f56c9",
+      "rotatedAt": "2025-10-31T03:38:49.475Z",
+      "messageCount": 3,
+      "reason": "auto-rotation"
+    },
+    {
+      "uuid": "fe20ae6f-833a-46b2-a1d6-7abfa20ef283",
+      "rotatedAt": "2025-10-31T03:43:52.039Z",
+      "messageCount": 3,
+      "reason": "auto-rotation"
+    },
+    {
+      "uuid": "e73e5720-e8d8-4334-af20-2f537480ea32",
+      "rotatedAt": "2025-10-31T03:49:18.633Z",
+      "messageCount": 3,
+      "reason": "auto-rotation"
+    },
+    {
+      "uuid": "49423417-a682-4f3f-8ce6-b3e999ce6d95",
+      "resetAt": "2025-10-31T13:51:05.375Z",
+      "messageCount": 1
+    }
+  ],
+  "updatedAt": "2025-10-31T14:11:12.230Z",
+  "ttsEnabled": true,
+  "lastMessageTime": 1761883274504,
+  "nudgeHistory": [
+    {
+      "timestamp": 1761871610582,
+      "delayHours": 24,
+      "message": "You said 10 user tests by Friday but didn't say **what** you're testing. CartoonGen? Different bots? What's the scope?",
+      "userResponded": true,
+      "stopSequence": false
+    }
+  ],
+  "lastNudgeSent": 0,
+  "rotatedAt": "2025-10-31T03:49:18.633Z"
+}

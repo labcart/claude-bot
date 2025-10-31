@@ -1,0 +1,17 @@
+{
+  "sessionId": "bot-smarterbud-user-7764813487",
+  "botId": "smarterbud",
+  "telegramUserId": 7764813487,
+  "currentUuid": "c5f7963c-c302-48a3-ac12-e770bcb5b038",
+  "createdAt": "2025-10-29T22:11:57.085Z",
+  "messageCount": 22,
+  "uuidHistory": [
+    {
+      "uuid": "5c80535c-cfdc-4474-9771-5b913d7d80ee",
+      "resetAt": "2025-10-30T19:52:25.334Z",
+      "messageCount": 17
+    }
+  ],
+  "updatedAt": "2025-10-30T22:44:02.490Z",
+  "ttsEnabled": true
+}

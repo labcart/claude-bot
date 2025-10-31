@@ -1,0 +1,17 @@
+# Don't copy these into Docker image
+node_modules
+.env
+.DS_Store
+.git
+.gitignore
+
+# Don't copy existing sessions (will be volume mounted)
+sessions/
+
+# Don't copy docs/planning files
+*.md
+docs/
+telecode-EXAMPLE-PROJECT/
+
+# Don't copy test files
+test-tools/

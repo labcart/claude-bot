@@ -1,0 +1,18 @@
+{
+  "sessionId": "bot-cartooned-user-7764813487",
+  "botId": "cartooned",
+  "telegramUserId": 7764813487,
+  "currentUuid": null,
+  "createdAt": "2025-10-30T16:19:46.651Z",
+  "messageCount": 37,
+  "uuidHistory": [
+    {
+      "uuid": "4b13dc28-6e96-4aaf-8c2c-407565c20633",
+      "resetAt": "2025-10-30T16:42:12.921Z",
+      "messageCount": 6
+    }
+  ],
+  "updatedAt": "2025-10-31T01:58:11.986Z",
+  "ttsEnabled": true,
+  "lastMessageTime": 1761875891986
+}

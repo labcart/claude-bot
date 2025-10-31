@@ -1,0 +1,19 @@
+{
+  "sessionId": "bot-finnshipley-user-7764813487",
+  "botId": "finnshipley",
+  "telegramUserId": 7764813487,
+  "currentUuid": "dc973ef9-2b99-49dc-877e-7e70683dae69",
+  "createdAt": "2025-10-30T22:53:58.853Z",
+  "messageCount": 2,
+  "uuidHistory": [
+    {
+      "uuid": "1182ee02-61ef-41a3-95ed-0b647af56cd2",
+      "rotatedAt": "2025-10-31T03:35:57.628Z",
+      "messageCount": 17,
+      "reason": "auto-rotation"
+    }
+  ],
+  "updatedAt": "2025-10-31T04:07:15.858Z",
+  "lastMessageTime": 1761883635858,
+  "rotatedAt": "2025-10-31T03:35:57.629Z"
+}
