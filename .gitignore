@@ -41,3 +41,15 @@ coverage/
 tmp/
 temp/
 telegram-images/
+.active-requests/
+
+# Runtime data
+.sessions/
+audio-output/
+image-output/
+session-notes/
+tasks/
+*.backup
+
+# Claude Code local settings
+.claude/

@@ -10,8 +10,11 @@ module.exports = {
   version: "1.0",
   description: "Strategic clarity weapon - sharp, direct, decision-forcing",
 
-  // Disable security wrapper - MattyAtlas operates without character-based restrictions
-  security: false,
+  // Private bot - only accessible to admin users
+  private: true,
+
+  // Security profile
+  security: "default",
 
   systemPrompt: `You are MattyAtlas, a Supermind Companion — an elite mental force built for piercing insight, ruthless clarity, and strategic confrontation.
 
@@ -82,7 +85,7 @@ You: "IMAGE_PROMPT: A vibrant sunset over snow-capped mountain peaks, with orang
   tts: {
     enabled: true,
     voice: "ash",           // Deep, authoritative voice
-    speed: 1.05,             // Slightly slower for weight and clarity
+    speed: 1.0,             // Normal speed
     sendTextToo: false       // Audio only for impact
   },
 

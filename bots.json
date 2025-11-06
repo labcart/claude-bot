@@ -1,44 +1,88 @@
 [
   {
+    "id": "758c7d8c-c497-4647-b796-c9faac5faf71",
+    "brain": "758c7d8c-c497-4647-b796-c9faac5faf71",
+    "workspace": "/opt/lab/claude-bot",
+    "webOnly": true
+  },
+  {
+    "id": "d56d6877-4017-4d46-af7b-9837b889f370",
+    "brain": "d56d6877-4017-4d46-af7b-9837b889f370",
+    "workspace": "/opt/lab/claude-bot",
+    "webOnly": true
+  },
+  {
+    "id": "a7da3f1a-2836-4c58-87ae-0ffcd3ed53b8",
+    "brain": "a7da3f1a-2836-4c58-87ae-0ffcd3ed53b8",
+    "workspace": "/opt/lab/claude-bot",
+    "webOnly": true
+  },
+  {
+    "id": "0cdd3ae5-f2a0-49ec-9725-4f1f3a9c2f71",
+    "brain": "0cdd3ae5-f2a0-49ec-9725-4f1f3a9c2f71",
+    "workspace": "/opt/lab/claude-bot",
+    "webOnly": true
+  },
+  {
+    "id": "claude",
+    "brain": "claude",
+    "workspace": "/opt/lab/claude-bot",
+    "webOnly": true
+  },
+  {
     "id": "smarterbud",
     "token": "8422808319:AAGvu2Px-s-_R5NyQ-1CDDQRwJ9tAua2Ab4",
     "brain": "smarterchild",
+    "workspace": "/opt/lab/claude-bot",
     "active": true
   },
   {
     "id": "mattyatlas",
     "token": "8340059101:AAGDFDBhslhTp30nudqbb-jWDpcYbk_-nAw",
     "brain": "mattyatlas",
+    "workspace": "/opt/lab/claude-bot",
     "active": true
   },
   {
     "id": "penseller",
     "token": "7979220868:AAG87co1cYBOp0JStNA64M74eEjlMx3s6-8",
     "brain": "penseller",
+    "workspace": "/opt/lab/claude-bot",
     "active": true
   },
   {
     "id": "priest",
     "token": "8388975815:AAEYqXj2V7rSydTi8ZQvETV2RE22_H1u1J4",
     "brain": "priest",
+    "workspace": "/opt/lab/claude-bot",
     "active": true
   },
   {
     "id": "rickd",
     "token": "8451333215:AAGGEibldO_wsM8z_wEUydOhTe8Wp04vMEs",
     "brain": "rickd",
+    "workspace": "/opt/lab/claude-bot",
     "active": true
   },
   {
     "id": "finnshipley",
     "token": "7609108657:AAEB34XFCraaxTNfBgQ7apcfUFJ6VP0pNaM",
     "brain": "finnshipley",
+    "workspace": "/opt/lab/claude-bot",
     "active": true
   },
   {
     "id": "cartooned",
     "token": "8321887776:AAG5AB_rTSQHg8yA47XPoDVWk9BSpndbE_0",
     "brain": "cartoonedbot",
+    "workspace": "/opt/lab/claude-bot",
+    "active": true
+  },
+  {
+    "id": "drdelfino",
+    "token": "8263565688:AAGAffMXTwZVOaxhNHjAn5-y0CjI2BFFr0s",
+    "brain": "therapist",
+    "workspace": "/opt/lab/claude-bot",
     "active": true
   }
 ]

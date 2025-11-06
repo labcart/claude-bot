@@ -84,18 +84,92 @@ else
   echo "   No MCP servers to clean up"
 fi
 
+# Step 5: Restart HTTP Services
+echo "🔄 Restarting HTTP Services..."
+
+# Get base directory for HTTP services
+# Get the parent directory of claude-bot (where all services live)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE_DIR="$(dirname "$SCRIPT_DIR")"
+
+echo "   Base directory: $BASE_DIR"
+
+# TTS HTTP Service (port 3001)
+TTS_HTTP_PID=$(lsof -ti :3001 2>/dev/null)
+if [ -n "$TTS_HTTP_PID" ]; then
+  echo "   Killing old TTS HTTP service (PID: $TTS_HTTP_PID)"
+  kill -9 $TTS_HTTP_PID 2>/dev/null
+  sleep 1
+fi
+
+if [ -d "$BASE_DIR/tts-http-service" ]; then
+  cd "$BASE_DIR/tts-http-service"
+  node index.js > /tmp/tts-http.log 2>&1 &
+  TTS_PID=$!
+  echo "✅ TTS HTTP Service started (PID: $TTS_PID, port 3001)"
+else
+  echo "⚠️  tts-http-service not found at $BASE_DIR/tts-http-service"
+fi
+
+# Image Gen HTTP Service (port 3002)
+IMAGE_HTTP_PID=$(lsof -ti :3002 2>/dev/null)
+if [ -n "$IMAGE_HTTP_PID" ]; then
+  echo "   Killing old Image Gen HTTP service (PID: $IMAGE_HTTP_PID)"
+  kill -9 $IMAGE_HTTP_PID 2>/dev/null
+  sleep 1
+fi
+
+if [ -d "$BASE_DIR/image-gen-http-service" ]; then
+  cd "$BASE_DIR/image-gen-http-service"
+  node index.js > /tmp/image-http.log 2>&1 &
+  IMAGE_PID=$!
+  echo "✅ Image Gen HTTP Service started (PID: $IMAGE_PID, port 3002)"
+else
+  echo "⚠️  image-gen-http-service not found at $BASE_DIR/image-gen-http-service"
+fi
+
+# Chat Context HTTP Service (port 3003)
+CHAT_HTTP_PID=$(lsof -ti :3003 2>/dev/null)
+if [ -n "$CHAT_HTTP_PID" ]; then
+  echo "   Killing old Chat Context HTTP service (PID: $CHAT_HTTP_PID)"
+  kill -9 $CHAT_HTTP_PID 2>/dev/null
+  sleep 1
+fi
+
+if [ -d "$BASE_DIR/chat-context-http-service" ]; then
+  cd "$BASE_DIR/chat-context-http-service"
+  node index.js > /tmp/chat-context-http.log 2>&1 &
+  CHAT_PID=$!
+  echo "✅ Chat Context HTTP Service started (PID: $CHAT_PID, port 3003)"
+else
+  echo "⚠️  chat-context-http-service not found at $BASE_DIR/chat-context-http-service"
+fi
+
+# Return to bot directory
+cd "$SCRIPT_DIR"
+
 echo "🚀 Starting bot server..."
-npm start >> server.log 2>&1 &
+
+# Create logs directory if it doesn't exist
+mkdir -p logs
+
+# Start server directly (not via npm to avoid wrapper process)
+node server.js >> logs/server.log 2>&1 &
+SERVER_PID=$!
 
 # Wait for startup
 sleep 3
 
 # Verify it started
-RUNNING=$(ps aux | grep "node server.js" | grep -v grep | wc -l)
-if [ "$RUNNING" -eq 1 ]; then
+if ps -p $SERVER_PID > /dev/null 2>&1; then
   echo "✅ Bot server restarted successfully!"
-  echo "📊 Process: $(ps aux | grep 'node server.js' | grep -v grep | awk '{print $2}')"
+  echo "📊 Process: $SERVER_PID"
+  echo ""
+  echo "📋 To view logs:"
+  echo "   tail -f logs/combined.log    # Bot activity logs"
+  echo "   tail -f logs/server.log      # Server startup logs"
 else
-  echo "❌ Failed to start - found $RUNNING processes running"
+  echo "❌ Failed to start - process died"
+  echo "📋 Check logs/server.log for errors"
   exit 1
 fi

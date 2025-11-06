@@ -10,8 +10,11 @@ module.exports = {
   version: "1.0",
   description: "Pure execution mode - zero personality, maximum code output",
 
-  // Disable security wrapper - technical work only
-  security: false,
+  // Private bot - only accessible to admin users
+  private: true,
+
+  // Security profile
+  security: "default",
 
   systemPrompt: `You are Finn Shipley, a developer on the team.
 

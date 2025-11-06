@@ -1059,4 +1059,100 @@ mv tasks/TODO-feature-name-2025-10-30-1430.md tasks/completed/
 
 ---
 
+## 14. Session Notes & Analysis Documentation
+
+### Session Notes Organization
+
+All analysis documents and deep-dive notes created during development sessions should be organized in timestamped folders:
+
+```
+session-notes/
+├── 2025-11-01/                                    # Today's session
+│   ├── VPS-DEPLOYMENT-ANALYSIS.md
+│   ├── SCALING-ANALYSIS.md
+│   ├── ARCHITECTURE-COMPARISON.md
+│   ├── REAL-ECONOMICS.md
+│   ├── MARKET-REALITY-CHECK.md
+│   └── PARODY-BOT-STRATEGY.md
+├── 2025-10-30/                                    # Previous session
+│   └── INITIAL-ARCHITECTURE-NOTES.md
+└── 2025-10-29/
+    └── PLANNING-SESSION.md
+```
+
+### When to Create Session Notes
+
+**Create session notes for**:
+- Architecture analysis and comparisons
+- Scaling/performance deep-dives
+- Market research and strategy documents
+- Economic/cost analysis
+- Legal/compliance research
+- Long-form planning documents
+- Strategic decision documentation
+
+**Format**: Descriptive filename in UPPERCASE with hyphens
+**Example**: `SCALING-ANALYSIS.md`, `VPS-DEPLOYMENT-GUIDE.md`
+
+### Organizing Session Notes
+
+**At the end of each session:**
+
+1. Create date folder if it doesn't exist:
+   ```bash
+   mkdir -p session-notes/$(date +%Y-%m-%d)
+   ```
+
+2. Move all session markdown files:
+   ```bash
+   mv *.md session-notes/$(date +%Y-%m-%d)/
+   ```
+
+3. Keep core docs in root:
+   - README.md
+   - ENGINEERING-PRINCIPLES.md
+   - PROJECT-OUTLINE.md
+   - Setup/deployment guides actively being used
+
+### Benefits
+
+1. **Historical context**: See what was analyzed and when
+2. **Clean root directory**: Core docs stay visible, analysis is organized
+3. **Chronological discovery**: Find decisions made on specific dates
+4. **Session continuity**: Pick up where you left off by reading previous session notes
+5. **Knowledge preservation**: Deep analysis isn't lost in clutter
+
+### Example Session Flow
+
+```bash
+# During session: Create analysis docs
+# VPS-DEPLOYMENT-ANALYSIS.md created
+# SCALING-ANALYSIS.md created
+# MARKET-REALITY-CHECK.md created
+
+# End of session: Organize into dated folder
+mkdir -p session-notes/2025-11-01
+mv VPS-DEPLOYMENT-ANALYSIS.md session-notes/2025-11-01/
+mv SCALING-ANALYSIS.md session-notes/2025-11-01/
+mv MARKET-REALITY-CHECK.md session-notes/2025-11-01/
+```
+
+### Core vs Session Documentation
+
+**Keep in project root**:
+- Engineering principles (this file)
+- Project outlines and roadmaps
+- Active setup/deployment guides
+- README and getting started docs
+
+**Move to session-notes/**:
+- Analysis documents
+- Strategy explorations
+- Cost/scaling calculations
+- Market research
+- Architecture comparisons
+- Decision rationale documents
+
+---
+
 *These principles were demonstrated in the TTS MCP Server project, which achieved 100% success rate across 19 production requests with zero errors, full observability, and complete audit trails.*
