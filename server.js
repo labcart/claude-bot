@@ -785,11 +785,80 @@ io.on('connection', (socket) => {
 // Store reference to io for bot manager to emit messages
 manager.io = io;
 
-httpServer.listen(HTTP_PORT, () => {
+/**
+ * Register this bot server with the coordination API
+ */
+async function registerServer() {
+  const serverId = process.env.SERVER_ID || `server-${require('os').hostname()}`;
+  const serverUrl = process.env.SERVER_URL || `http://localhost:${HTTP_PORT}`;
+  const userId = process.env.USER_ID;
+  const coordinationUrl = process.env.COORDINATION_URL || 'http://localhost:3000/api/servers/register';
+
+  if (!userId) {
+    console.log('ℹ️  No USER_ID configured - skipping server registration');
+    console.log('   Set USER_ID env var to enable coordination\n');
+    return;
+  }
+
+  try {
+    console.log(`📡 Registering server with coordination API...`);
+    console.log(`   Server ID: ${serverId}`);
+    console.log(`   Server URL: ${serverUrl}`);
+    console.log(`   User ID: ${userId}`);
+
+    const response = await fetch(coordinationUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        serverId,
+        userId,
+        serverUrl,
+        serverName: require('os').hostname(),
+        status: 'online',
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error(`❌ Failed to register server: ${error}`);
+      return;
+    }
+
+    const data = await response.json();
+    console.log(`✅ Server registered successfully`);
+
+    // Send heartbeat every 30 seconds
+    setInterval(async () => {
+      try {
+        await fetch(coordinationUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            serverId,
+            userId,
+            serverUrl,
+            serverName: require('os').hostname(),
+            status: 'online',
+          }),
+        });
+      } catch (err) {
+        console.error('❌ Heartbeat failed:', err.message);
+      }
+    }, 30000);
+
+  } catch (error) {
+    console.error(`❌ Error registering server:`, error.message);
+  }
+}
+
+httpServer.listen(HTTP_PORT, async () => {
   console.log(`\n🌐 HTTP Server listening on port ${HTTP_PORT}`);
   console.log(`   POST /trigger-bot - External delegation endpoint`);
   console.log(`   GET  /health      - Health check`);
   console.log(`   WebSocket enabled for UI connections\n`);
+
+  // Register with coordination API
+  await registerServer();
 });
 
 // Graceful shutdown handlers
