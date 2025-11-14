@@ -14,7 +14,7 @@ require('dotenv').config();
 
 const BRAINS_DIR = path.join(__dirname, '..', 'brains');
 const BOTS_JSON_PATH = path.join(__dirname, '..', 'bots.json');
-const COORDINATION_URL = process.env.COORDINATION_URL?.replace('/register', '') || 'https://labcart.io/api';
+const COORDINATION_URL = process.env.COORDINATION_URL?.replace('/api/servers/register', '/api') || 'https://labcart.io/api';
 const USER_ID = process.env.USER_ID;
 const SERVER_ID = process.env.SERVER_ID;
 
@@ -103,10 +103,14 @@ async function createBot(metadata) {
  * Check if bots already exist for this user
  */
 async function getBots() {
-  const response = await fetch(`${COORDINATION_URL}/bots?userId=${USER_ID}`);
+  const url = `${COORDINATION_URL}/bots?userId=${USER_ID}`;
+  console.log(`   Fetching from: ${url}`);
+
+  const response = await fetch(url);
 
   if (!response.ok) {
-    throw new Error('Failed to fetch existing bots');
+    const error = await response.text();
+    throw new Error(`Failed to fetch existing bots (${response.status}): ${error}`);
   }
 
   const result = await response.json();
@@ -203,6 +207,7 @@ async function init() {
 init().catch(err => {
   console.error('');
   console.error('❌ Initialization failed:', err.message);
+  console.error('Stack trace:', err.stack);
   console.error('');
   process.exit(1);
 });
