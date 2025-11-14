@@ -1013,7 +1013,8 @@ app.post('/sync-bots', async (req, res) => {
       .filter(bot => bot.active)
       .map(bot => ({
         id: bot.id,
-        brain: bot.brain,
+        name: bot.name,
+        systemPrompt: bot.system_prompt,
         workspace: bot.workspace || '/opt/lab/claude-bot',
         webOnly: bot.web_only,
         token: bot.telegram_token,
