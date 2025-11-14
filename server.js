@@ -899,6 +899,91 @@ app.post('/resolve-workspace', async (req, res) => {
   }
 });
 
+// File system listing endpoint
+app.get('/files', (req, res) => {
+  try {
+    const workspacePath = req.query.workspace || process.cwd();
+    const dirPath = req.query.path || workspacePath;
+
+    // Security: Ensure we're only reading from the workspace
+    const normalizedPath = path.normalize(dirPath);
+    const normalizedWorkspace = path.normalize(workspacePath);
+    if (!normalizedPath.startsWith(normalizedWorkspace)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const items = fs.readdirSync(normalizedPath, { withFileTypes: true });
+
+    const files = items.map(item => ({
+      name: item.name,
+      path: path.join(normalizedPath, item.name),
+      isDirectory: item.isDirectory(),
+      isFile: item.isFile(),
+    }))
+    .filter(item => !item.name.startsWith('.')) // Hide hidden files
+    .sort((a, b) => {
+      // Directories first, then files, alphabetically
+      if (a.isDirectory && !b.isDirectory) return -1;
+      if (!a.isDirectory && b.isDirectory) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    res.json({ files, path: normalizedPath });
+  } catch (error) {
+    console.error('Error reading directory:', error);
+    res.status(500).json({ error: 'Failed to read directory' });
+  }
+});
+
+// File system watching endpoint (Server-Sent Events)
+app.get('/files/watch', (req, res) => {
+  const workspacePath = req.query.workspace || process.cwd();
+  const dirPath = req.query.path || workspacePath;
+
+  if (!dirPath) {
+    return res.status(400).send('Path is required');
+  }
+
+  if (!fs.existsSync(dirPath)) {
+    return res.status(404).send('Directory does not exist');
+  }
+
+  // Security check
+  const normalizedPath = path.normalize(dirPath);
+  const normalizedWorkspace = path.normalize(workspacePath);
+  if (!normalizedPath.startsWith(normalizedWorkspace)) {
+    return res.status(403).send('Access denied');
+  }
+
+  // Set up SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  // Send initial connection message
+  res.write(`data: ${JSON.stringify({ type: 'connected' })}\n\n`);
+
+  // Watch the directory for changes
+  const watcher = fs.watch(normalizedPath, { recursive: false }, (eventType, filename) => {
+    if (filename) {
+      console.log(`File system change detected: ${eventType} - ${filename}`);
+      const event = {
+        type: 'change',
+        eventType,
+        filename,
+        timestamp: Date.now(),
+      };
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    }
+  });
+
+  // Handle client disconnect
+  req.on('close', () => {
+    watcher.close();
+    console.log(`Stopped watching: ${normalizedPath}`);
+  });
+});
+
 httpServer.listen(HTTP_PORT, async () => {
   console.log(`\n🌐 HTTP Server listening on port ${HTTP_PORT}`);
   console.log(`   POST /trigger-bot - External delegation endpoint`);
