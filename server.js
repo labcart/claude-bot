@@ -14,7 +14,6 @@
 
 require('dotenv').config();
 const BotManager = require('./lib/bot-manager');
-const NudgeManager = require('./lib/nudge-manager');
 const TerminalManager = require('./lib/terminal-manager');
 const { recoverFromRestart } = require('./lib/restart-recovery');
 const fs = require('fs');
@@ -125,13 +124,6 @@ const terminalManager = new TerminalManager();
     console.error('⚠️  Restart recovery failed:', err.message);
   });
 })();
-
-// Initialize Nudge Manager
-const nudgeManager = new NudgeManager(
-  manager,
-  manager.sessionManager,
-  process.env.CLAUDE_CMD || 'claude'
-);
 
 // Start HTTP server for external delegation requests
 const express = require('express');
@@ -864,7 +856,6 @@ httpServer.listen(HTTP_PORT, async () => {
 // Graceful shutdown handlers
 const shutdown = async () => {
   console.log('\n\n🛑 Received shutdown signal...');
-  nudgeManager.stop();
   terminalManager.killAll();
   await manager.stopAll();
   process.exit(0);
