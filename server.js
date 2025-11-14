@@ -984,6 +984,60 @@ app.get('/files/watch', (req, res) => {
   });
 });
 
+// Bot sync endpoint - Sync bots from database to bots.json
+app.post('/sync-bots', async (req, res) => {
+  try {
+    const userId = process.env.USER_ID;
+    const coordinationUrl = process.env.COORDINATION_URL?.replace('/register', '') || 'http://localhost:3000/api';
+
+    if (!userId) {
+      return res.status(400).json({ error: 'USER_ID not configured' });
+    }
+
+    console.log(`📡 Syncing bots from database for user ${userId}...`);
+
+    // Fetch bots from database
+    const response = await fetch(`${coordinationUrl}/bots?userId=${userId}`);
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error(`❌ Failed to fetch bots: ${error}`);
+      return res.status(500).json({ error: 'Failed to fetch bots from database' });
+    }
+
+    const data = await response.json();
+    const bots = data.bots || [];
+
+    // Convert database format to bots.json format
+    const botsConfig = bots
+      .filter(bot => bot.active)
+      .map(bot => ({
+        id: bot.id,
+        brain: bot.brain,
+        workspace: bot.workspace || '/opt/lab/claude-bot',
+        webOnly: bot.web_only,
+        token: bot.telegram_token,
+        active: bot.active,
+      }));
+
+    // Write to bots.json
+    const botsConfigPath = path.join(__dirname, 'bots.json');
+    fs.writeFileSync(botsConfigPath, JSON.stringify(botsConfig, null, 2));
+
+    console.log(`✅ Synced ${botsConfig.length} bots to bots.json`);
+
+    res.json({
+      success: true,
+      synced: botsConfig.length,
+      bots: botsConfig,
+    });
+
+  } catch (error) {
+    console.error('Error syncing bots:', error);
+    res.status(500).json({ error: 'Failed to sync bots', message: error.message });
+  }
+});
+
 httpServer.listen(HTTP_PORT, async () => {
   console.log(`\n🌐 HTTP Server listening on port ${HTTP_PORT}`);
   console.log(`   POST /trigger-bot - External delegation endpoint`);
