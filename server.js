@@ -859,25 +859,31 @@ app.post('/resolve-workspace', async (req, res) => {
     const { execSync } = require('child_process');
     const sanitizedName = folderName.replace(/['"\\]/g, '');
 
-    // Search locations
+    // Search locations - prioritize common project locations
+    const home = process.env.HOME || '/Users';
     const searchPaths = [
-      process.env.HOME || '/Users',
-      '/Users',
-      '/opt',
+      `${home}/play`,
+      `${home}/projects`,
+      `${home}/Desktop`,
+      `${home}/Documents`,
+      `${home}/code`,
+      `${home}/dev`,
       process.cwd(),
     ];
 
     let foundPath = null;
 
+    // Try each search location with reduced depth and timeout
     for (const searchPath of searchPaths) {
       try {
         const result = execSync(
-          `find "${searchPath}" -maxdepth 5 -type d -name "${sanitizedName}" 2>/dev/null | head -1`,
-          { encoding: 'utf-8', timeout: 5000 }
+          `find "${searchPath}" -maxdepth 3 -type d -name "${sanitizedName}" 2>/dev/null | head -1`,
+          { encoding: 'utf-8', timeout: 2000 }
         ).trim();
 
         if (result) {
           foundPath = result;
+          console.log(`✅ Found workspace at: ${result}`);
           break;
         }
       } catch (err) {
