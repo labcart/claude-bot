@@ -134,7 +134,11 @@ const app = express();
 
 // CORS middleware for HTTP requests (fetch API calls from browser)
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', 'http://localhost:3000');
+  const allowedOrigins = ['http://localhost:3000', 'https://labcart.io'];
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') {
@@ -843,9 +847,62 @@ async function registerServer() {
   }
 }
 
+// Workspace folder resolution endpoint
+app.post('/resolve-workspace', async (req, res) => {
+  try {
+    const { folderName } = req.body;
+
+    if (!folderName) {
+      return res.status(400).json({ error: 'Folder name is required' });
+    }
+
+    const { execSync } = require('child_process');
+    const sanitizedName = folderName.replace(/['"\\]/g, '');
+
+    // Search locations
+    const searchPaths = [
+      process.env.HOME || '/Users',
+      '/Users',
+      '/opt',
+      process.cwd(),
+    ];
+
+    let foundPath = null;
+
+    for (const searchPath of searchPaths) {
+      try {
+        const result = execSync(
+          `find "${searchPath}" -maxdepth 5 -type d -name "${sanitizedName}" 2>/dev/null | head -1`,
+          { encoding: 'utf-8', timeout: 5000 }
+        ).trim();
+
+        if (result) {
+          foundPath = result;
+          break;
+        }
+      } catch (err) {
+        // Continue to next search path
+      }
+    }
+
+    if (!foundPath) {
+      return res.status(404).json({
+        error: 'Folder not found',
+        message: `Could not find folder "${sanitizedName}" in any search location`
+      });
+    }
+
+    res.json({ path: foundPath });
+  } catch (error) {
+    console.error('Error resolving workspace:', error);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
 httpServer.listen(HTTP_PORT, async () => {
   console.log(`\n🌐 HTTP Server listening on port ${HTTP_PORT}`);
   console.log(`   POST /trigger-bot - External delegation endpoint`);
+  console.log(`   POST /resolve-workspace - Workspace folder resolution`);
   console.log(`   GET  /health      - Health check`);
   console.log(`   WebSocket enabled for UI connections\n`);
 
