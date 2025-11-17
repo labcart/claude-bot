@@ -49,44 +49,6 @@ console.log(`
 ╚═══════════════════════════════════════╝
 `);
 
-// Load bot configurations from bots.json
-const botsConfigPath = path.join(__dirname, 'bots.json');
-
-if (!fs.existsSync(botsConfigPath)) {
-  console.error('❌ Error: bots.json file not found');
-  console.error('   Please create a bots.json file with bot configurations');
-  console.error('   See bots.json.example for template\n');
-  process.exit(1);
-}
-
-// Parse bot configurations
-let bots;
-try {
-  const botsConfigData = fs.readFileSync(botsConfigPath, 'utf8');
-  bots = JSON.parse(botsConfigData);
-} catch (error) {
-  console.error('❌ Error: Invalid JSON in bots.json file');
-  console.error('   Make sure bots.json is valid JSON array\n');
-  console.error('   Error:', error.message, '\n');
-  process.exit(1);
-}
-
-if (!Array.isArray(bots) || bots.length === 0) {
-  console.error('❌ Error: bots.json must contain a non-empty array');
-  console.error('   Add at least one bot configuration\n');
-  process.exit(1);
-}
-
-// Validate each bot config
-for (const bot of bots) {
-  // Web-only bots don't need tokens
-  if (!bot.id || !bot.brain || (!bot.token && !bot.webOnly)) {
-    console.error('❌ Error: Each bot must have id and brain fields (token required unless webOnly)');
-    console.error('   Invalid bot config:', JSON.stringify(bot, null, 2));
-    process.exit(1);
-  }
-}
-
 // Create bot manager
 const manager = new BotManager({
   claudeCmd: process.env.CLAUDE_CMD || 'claude'
@@ -95,10 +57,104 @@ const manager = new BotManager({
 // Create terminal manager
 const terminalManager = new TerminalManager();
 
-// Initialize bots asynchronously
+/**
+ * Load Bot Configurations and Initialize
+ *
+ * Two modes supported:
+ * 1. Web UI Mode: Fetch bots from Supabase (requires USER_ID and COORDINATION_URL)
+ * 2. Telegram Mode: Read from bots.json (legacy/local setup)
+ */
 (async () => {
+  let bots;
+  const USER_ID = process.env.USER_ID;
+  const COORDINATION_URL = process.env.COORDINATION_URL?.replace('/api/servers/register', '/api') || process.env.COORDINATION_URL;
+
+  if (USER_ID && COORDINATION_URL) {
+    // WEB UI MODE: Fetch bots from Supabase
+    console.log('🌐 Web UI Mode: Fetching bots from database...');
+    console.log(`   User ID: ${USER_ID}`);
+
+    try {
+      const botsUrl = `${COORDINATION_URL}/bots?userId=${USER_ID}`;
+      const response = await fetch(botsUrl);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Error: Failed to fetch bots from database');
+        console.error(`   Status: ${response.status}`);
+        console.error(`   Error: ${errorText}\n`);
+        process.exit(1);
+      }
+
+      const data = await response.json();
+      bots = (data.bots || []).filter(bot => bot.active);
+
+      if (bots.length === 0) {
+        console.error('❌ Error: No active bots found for this user');
+        console.error('   Run: node scripts/init-bots.js to create bots from brain files\n');
+        process.exit(1);
+      }
+
+      console.log(`✅ Loaded ${bots.length} bot(s) from database`);
+
+      // Transform database format to internal format
+      bots = bots.map(bot => ({
+        id: bot.id,
+        brain: bot.id, // Use bot UUID - BrainLoader will load from database
+        webOnly: bot.web_only !== undefined ? bot.web_only : true,
+        active: bot.active,
+        // Note: workspace is NOT used - it comes from UI per-message
+      }));
+
+    } catch (error) {
+      console.error('❌ Error: Failed to connect to database');
+      console.error(`   ${error.message}\n`);
+      process.exit(1);
+    }
+
+  } else {
+    // TELEGRAM MODE: Read from bots.json
+    console.log('📱 Telegram Mode: Loading bots from bots.json...');
+
+    const botsConfigPath = path.join(__dirname, 'bots.json');
+
+    if (!fs.existsSync(botsConfigPath)) {
+      console.error('❌ Error: bots.json file not found');
+      console.error('   For Web UI: Set USER_ID and COORDINATION_URL in .env');
+      console.error('   For Telegram: Create bots.json (see bots.json.example)\n');
+      process.exit(1);
+    }
+
+    try {
+      const botsConfigData = fs.readFileSync(botsConfigPath, 'utf8');
+      bots = JSON.parse(botsConfigData);
+    } catch (error) {
+      console.error('❌ Error: Invalid JSON in bots.json file');
+      console.error('   Make sure bots.json is valid JSON array\n');
+      console.error('   Error:', error.message, '\n');
+      process.exit(1);
+    }
+
+    if (!Array.isArray(bots) || bots.length === 0) {
+      console.error('❌ Error: bots.json must contain a non-empty array');
+      console.error('   Add at least one bot configuration\n');
+      process.exit(1);
+    }
+
+    // Validate each bot config (Telegram mode requires tokens)
+    for (const bot of bots) {
+      if (!bot.id || !bot.brain || (!bot.token && !bot.webOnly)) {
+        console.error('❌ Error: Each bot must have id and brain fields (token required unless webOnly)');
+        console.error('   Invalid bot config:', JSON.stringify(bot, null, 2));
+        process.exit(1);
+      }
+    }
+
+    console.log(`✅ Loaded ${bots.length} bot(s) from bots.json`);
+  }
+
   // Add each bot
-  console.log('🚀 Loading bots...\n');
+  console.log('🚀 Initializing bots...\n');
 
   for (const bot of bots) {
     try {

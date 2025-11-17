@@ -119,6 +119,10 @@ async function getBots() {
 
 /**
  * Generate bots.json from bot records
+ *
+ * NOTE: This is ONLY needed for Telegram bot mode (not Web UI).
+ * For Web UI, bots are fetched directly from Supabase on server startup.
+ * This function is kept for backwards compatibility but may be removed.
  */
 function generateBotsJson(bots) {
   const botsConfig = bots.map(bot => ({
@@ -131,6 +135,7 @@ function generateBotsJson(bots) {
 
   fs.writeFileSync(BOTS_JSON_PATH, JSON.stringify(botsConfig, null, 2));
   console.log(`✅ Generated bots.json with ${botsConfig.length} bots`);
+  console.log(`ℹ️  Note: Web UI fetches bots from Supabase. This file is for Telegram mode only.`);
 }
 
 /**
