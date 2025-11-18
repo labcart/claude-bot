@@ -1,64 +1,22 @@
 [
   {
-    "id": "0cdd3ae5-f2a0-49ec-9725-4f1f3a9c2f71",
-    "brain": "0cdd3ae5-f2a0-49ec-9725-4f1f3a9c2f71",
-    "workspace": "/Users/macbook/play/lab/claude-bot",
+    "id": "853da329-967c-4b67-b2fc-a8eaa4f5b656",
+    "brain": "853da329-967c-4b67-b2fc-a8eaa4f5b656",
+    "workspace": "/Users/macbook/.labcart/claude-bot",
     "webOnly": true,
     "active": true
   },
   {
-    "id": "758c7d8c-c497-4647-b796-c9faac5faf71",
-    "brain": "758c7d8c-c497-4647-b796-c9faac5faf71",
-    "workspace": "/Users/macbook/play/lab/claude-bot",
+    "id": "58ffd3e3-7b13-46ac-93e7-59062ed05fd6",
+    "brain": "58ffd3e3-7b13-46ac-93e7-59062ed05fd6",
+    "workspace": "/Users/macbook/.labcart/claude-bot",
     "webOnly": true,
     "active": true
   },
   {
-    "id": "d56d6877-4017-4d46-af7b-9837b889f370",
-    "brain": "d56d6877-4017-4d46-af7b-9837b889f370",
-    "workspace": "/Users/macbook/play/lab/claude-bot",
-    "webOnly": true,
-    "active": true
-  },
-  {
-    "id": "a7da3f1a-2836-4c58-87ae-0ffcd3ed53b8",
-    "brain": "a7da3f1a-2836-4c58-87ae-0ffcd3ed53b8",
-    "workspace": "/Users/macbook/play/lab/claude-bot",
-    "webOnly": true,
-    "active": true
-  },
-  {
-    "id": "385a86f6-26ed-47b7-a061-9f516f0ee25a",
-    "brain": "385a86f6-26ed-47b7-a061-9f516f0ee25a",
-    "workspace": "/Users/macbook/play/lab/claude-bot",
-    "webOnly": true,
-    "active": true
-  },
-  {
-    "id": "ed07fd50-87d9-4111-98a7-87eb12d1d6ec",
-    "brain": "ed07fd50-87d9-4111-98a7-87eb12d1d6ec",
-    "workspace": "/Users/macbook/play/lab/claude-bot",
-    "webOnly": true,
-    "active": true
-  },
-  {
-    "id": "9827ad96-7d5e-48b9-9161-ba4ff54183b3",
-    "brain": "9827ad96-7d5e-48b9-9161-ba4ff54183b3",
-    "workspace": "/Users/macbook/play/lab/claude-bot",
-    "webOnly": true,
-    "active": true
-  },
-  {
-    "id": "da37a232-b9b9-4dd1-8988-a8e92cd9d64f",
-    "brain": "da37a232-b9b9-4dd1-8988-a8e92cd9d64f",
-    "workspace": "/Users/macbook/play/lab/claude-bot",
-    "webOnly": true,
-    "active": true
-  },
-  {
-    "id": "b4387250-97ad-4f00-ad95-76a4e217b2e6",
-    "brain": "b4387250-97ad-4f00-ad95-76a4e217b2e6",
-    "workspace": "/Users/macbook/play/lab/claude-bot",
+    "id": "5b31323f-7126-4f8e-99ea-a7fb7089bf58",
+    "brain": "5b31323f-7126-4f8e-99ea-a7fb7089bf58",
+    "workspace": "/Users/macbook/.labcart/claude-bot",
     "webOnly": true,
     "active": true
   }

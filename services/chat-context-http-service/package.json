@@ -1,0 +1,21 @@
+{
+  "name": "chat-context-http-service",
+  "version": "1.0.0",
+  "description": "Standalone HTTP service for chat context retrieval (wraps chat-context-mcp)",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "chat-context",
+    "cursor",
+    "claude",
+    "http-service"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
