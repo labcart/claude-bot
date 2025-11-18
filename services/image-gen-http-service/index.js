@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
 /**
- * Image Generation HTTP Service
+ * Image Generation HTTP Service (Standalone)
  *
- * Standalone HTTP server that provides image generation functionality.
+ * Self-contained HTTP server that provides image generation functionality.
  * Runs once globally and serves all MCP Router instances.
  *
- * Original MCP backup: /Users/macbook/play/image-gen-mcp
+ * No MCP dependencies - just Express + OpenAI DALL-E provider
  */
 
 import express from 'express';
@@ -15,10 +15,10 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// Import provider from original image-gen MCP
-import { OpenAIDALLEProvider } from '../image-gen-mcp/providers/openai-dalle.js';
-import { requestQueue } from '../image-gen-mcp/utils/request-queue.js';
-import { logUsage } from '../image-gen-mcp/utils/usage-logger.js';
+// Import provider from local directory
+import { OpenAIDALLEProvider } from './providers/openai-dalle.js';
+import { requestQueue } from './utils/request-queue.js';
+import { logUsage } from './utils/usage-logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,18 +26,18 @@ const __dirname = path.dirname(__filename);
 // Load environment variables
 dotenv.config();
 
-// Load configuration from image-gen-mcp
+// Load configuration
 let config;
 try {
-  const configPath = path.join(__dirname, '../image-gen-mcp/config.json');
+  const configPath = path.join(__dirname, 'config.json');
   const configData = await fs.readFile(configPath, 'utf-8');
   config = JSON.parse(configData);
 } catch (error) {
-  console.error('❌ Failed to load image-gen-mcp config.json:', error.message);
+  console.error('❌ Failed to load config.json:', error.message);
   process.exit(1);
 }
 
-// Initialize provider (same as original MCP)
+// Initialize provider
 const providerName = config.provider || 'openai';
 let imageProvider;
 

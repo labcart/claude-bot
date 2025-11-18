@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
 /**
- * TTS HTTP Service
+ * TTS HTTP Service (Standalone)
  *
- * Standalone HTTP server that provides TTS functionality.
+ * Self-contained HTTP server that provides TTS functionality.
  * Runs once globally and serves all MCP Router instances.
  *
- * Original MCP backup: /Users/macbook/play/TTS-mcp-BACKUP
+ * No MCP dependencies - just Express + TTS providers
  */
 
 import express from 'express';
@@ -15,12 +15,12 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// Import providers from original TTS MCP
-import { GoogleTTSProvider } from '../TTS-mcp/providers/google-tts.js';
-import { OpenAITTSProvider } from '../TTS-mcp/providers/openai-tts.js';
-import { ElevenLabsTTSProvider } from '../TTS-mcp/providers/elevenlabs-tts.js';
-import { requestQueue } from '../TTS-mcp/utils/request-queue.js';
-import { logUsage } from '../TTS-mcp/utils/usage-logger.js';
+// Import providers from local directory
+import { GoogleTTSProvider } from './providers/google-tts.js';
+import { OpenAITTSProvider } from './providers/openai-tts.js';
+import { ElevenLabsTTSProvider } from './providers/elevenlabs-tts.js';
+import { requestQueue } from './utils/request-queue.js';
+import { logUsage } from './utils/usage-logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,18 +28,18 @@ const __dirname = path.dirname(__filename);
 // Load environment variables
 dotenv.config();
 
-// Load configuration from TTS-mcp
+// Load configuration
 let config;
 try {
-  const configPath = path.join(__dirname, '../TTS-mcp/config.json');
+  const configPath = path.join(__dirname, 'config.json');
   const configData = await fs.readFile(configPath, 'utf-8');
   config = JSON.parse(configData);
 } catch (error) {
-  console.error('❌ Failed to load TTS-mcp config.json:', error.message);
+  console.error('❌ Failed to load config.json:', error.message);
   process.exit(1);
 }
 
-// Initialize providers (same as original MCP)
+// Initialize providers
 const providers = {};
 const defaultProvider = config.provider || 'openai';
 

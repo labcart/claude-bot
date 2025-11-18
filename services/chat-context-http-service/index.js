@@ -1,20 +1,20 @@
 #!/usr/bin/env node
 
 /**
- * Chat Context HTTP Service
+ * Chat Context HTTP Service (Standalone)
  *
- * Standalone HTTP server that provides chat context/session retrieval.
+ * Self-contained HTTP server that provides chat context/session retrieval.
  * Runs once globally and serves all MCP Router instances.
  *
- * Original MCP: /Users/macbook/play/chat-context-mcp
+ * Reads local Cursor/Claude Code SQLite databases
  */
 
 import express from 'express';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
-// Import from original chat-context-mcp
-import { CursorContext } from '../chat-context-mcp/dist/core/index.js';
+// Import from local dist directory
+import { CursorContext } from './dist/core/index.js';
 import {
   handleListSessions,
   handleSearchSessions,
@@ -25,7 +25,7 @@ import {
   handleSyncSessions,
   handleListTags,
   handleListProjects
-} from '../chat-context-mcp/dist/mcp-server/tools.js';
+} from './dist/mcp-server/tools.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

@@ -1,0 +1,18 @@
+{
+  "provider": "openai",
+  "output_format": "png",
+  "output_dir": "./image-output",
+  "openai": {
+    "model": "dall-e-3",
+    "quality": "standard",
+    "size": "1024x1024",
+    "style": "vivid"
+  },
+  "stability": {
+    "engine": "stable-diffusion-xl-1024-v1-0",
+    "steps": 30,
+    "cfg_scale": 7.0,
+    "width": 1024,
+    "height": 1024
+  }
+}
