@@ -190,11 +190,8 @@ const app = express();
 
 // CORS middleware for HTTP requests (fetch API calls from browser)
 app.use((req, res, next) => {
-  const allowedOrigins = ['http://localhost:3000', 'https://labcart.io'];
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-  }
+  // Allow all origins since requests come through our controlled proxy
+  res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') {
