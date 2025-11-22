@@ -852,60 +852,46 @@ async function connectToProxy() {
   }
 
   try {
-    const { io: ioClient } = require('socket.io-client');
+    const WebSocket = require('ws');
 
     console.log(`🔌 Connecting to IDE WebSocket proxy...`);
     console.log(`   Proxy URL: ${proxyUrl}`);
     console.log(`   User ID: ${userId}`);
     console.log(`   Server URL: ${serverUrl}`);
 
-    // Connect as bot-server to proxy
-    const proxySocket = ioClient(proxyUrl, {
-      transports: ['websocket', 'polling'],
-      query: {
-        userId,
-        type: 'bot-server',
-        serverUrl
-      },
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000
-    });
+    // Build WebSocket URL with query parameters
+    const wsUrl = `${proxyUrl}?userId=${encodeURIComponent(userId)}&type=bot-server&serverUrl=${encodeURIComponent(serverUrl)}`;
 
-    proxySocket.on('connect', () => {
+    // Connect as bot-server to proxy using raw WebSocket
+    const proxySocket = new WebSocket(wsUrl);
+
+    proxySocket.on('open', () => {
       console.log(`✅ Connected to IDE WebSocket proxy`);
     });
 
-    proxySocket.on('disconnect', (reason) => {
-      console.log(`⚠️  Disconnected from IDE proxy: ${reason}`);
+    proxySocket.on('close', (code, reason) => {
+      console.log(`⚠️  Disconnected from IDE proxy: ${code} ${reason}`);
+      // Attempt to reconnect after 5 seconds
+      setTimeout(() => connectToProxy(), 5000);
     });
 
     proxySocket.on('error', (error) => {
-      console.error(`❌ IDE proxy error:`, error);
+      console.error(`❌ IDE proxy error:`, error.message);
     });
 
     // Handle messages from proxy (from frontend IDE clients)
-    // These are the same events the local Socket.IO server handles
-    proxySocket.on('chat:send', (data) => {
-      // Find the existing handler in the local io server
-      // We'll trigger the same logic by emitting to a special namespace
-      console.log('📨 Received chat:send from IDE proxy:', data);
-      io.emit('remote:chat:send', data);
-    });
+    proxySocket.on('message', (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+        console.log('📨 Received message from IDE proxy:', message);
 
-    proxySocket.on('terminal:create', (data) => {
-      console.log('📨 Received terminal:create from IDE proxy:', data);
-      io.emit('remote:terminal:create', data);
-    });
-
-    proxySocket.on('terminal:input', (data) => {
-      console.log('📨 Received terminal:input from IDE proxy:', data);
-      io.emit('remote:terminal:input', data);
-    });
-
-    proxySocket.on('terminal:kill', (data) => {
-      console.log('📨 Received terminal:kill from IDE proxy:', data);
-      io.emit('remote:terminal:kill', data);
+        // Forward to local Socket.IO server based on event type
+        if (message.event) {
+          io.emit(message.event, message.data);
+        }
+      } catch (error) {
+        console.error('Error parsing proxy message:', error);
+      }
     });
 
     // Store proxy socket reference for bot manager to emit messages back
