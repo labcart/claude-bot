@@ -1042,6 +1042,99 @@ app.post('/resolve-workspace', async (req, res) => {
   }
 });
 
+// Discover workspaces by finding .claude/ directories (recent Claude Code projects)
+app.get('/discover-workspaces', async (req, res) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const { execSync } = require('child_process');
+    const home = process.env.HOME || process.env.USERPROFILE;
+
+    console.log('🔍 Discovering workspaces via Claude session logs...');
+
+    // Search common locations for .claude directories
+    const searchPaths = [
+      home,
+      path.join(home, 'projects'),
+      path.join(home, 'dev'),
+      path.join(home, 'code'),
+      path.join(home, 'Documents'),
+      '/opt',
+      '/var/www',
+    ].filter(p => fs.existsSync(p));
+
+    const discoveredWorkspaces = [];
+    const seenPaths = new Set();
+
+    for (const searchPath of searchPaths) {
+      try {
+        // Find .claude directories (max depth 4 to avoid too deep searches)
+        const findCmd = `find "${searchPath}" -maxdepth 4 -type d -name ".claude" 2>/dev/null`;
+        const result = execSync(findCmd, {
+          encoding: 'utf-8',
+          timeout: 5000,
+          maxBuffer: 1024 * 1024
+        }).trim();
+
+        if (!result) continue;
+
+        const claudeDirs = result.split('\n').filter(Boolean);
+
+        for (const claudeDir of claudeDirs) {
+          // Workspace path is the parent directory of .claude/
+          const workspacePath = path.dirname(claudeDir);
+
+          // Skip if already found
+          if (seenPaths.has(workspacePath)) continue;
+          seenPaths.add(workspacePath);
+
+          // Get workspace info
+          const stats = fs.statSync(workspacePath);
+          const name = path.basename(workspacePath);
+
+          // Check if it's a git repo
+          const isGitRepo = fs.existsSync(path.join(workspacePath, '.git'));
+
+          // Try to get last session time from .claude/ metadata
+          let lastUsed = stats.mtime;
+          try {
+            const claudeFiles = fs.readdirSync(claudeDir);
+            // Look for session files or projects directory
+            const projectsDir = path.join(claudeDir, 'projects');
+            if (fs.existsSync(projectsDir)) {
+              const projectStat = fs.statSync(projectsDir);
+              lastUsed = projectStat.mtime;
+            }
+          } catch (err) {
+            // Fallback to directory mtime
+          }
+
+          discoveredWorkspaces.push({
+            name,
+            path: workspacePath,
+            isGitRepo,
+            lastUsed,
+            source: 'claude-session',
+          });
+        }
+      } catch (err) {
+        console.error(`Error searching ${searchPath}:`, err.message);
+        // Continue to next search path
+      }
+    }
+
+    // Sort by most recently used
+    discoveredWorkspaces.sort((a, b) => new Date(b.lastUsed) - new Date(a.lastUsed));
+
+    console.log(`✅ Discovered ${discoveredWorkspaces.length} workspaces via Claude sessions`);
+
+    res.json({ workspaces: discoveredWorkspaces });
+  } catch (error) {
+    console.error('Error discovering workspaces:', error);
+    res.status(500).json({ error: 'Failed to discover workspaces', message: error.message });
+  }
+});
+
 // List available workspaces in ~/labcart-projects/
 app.get('/list-workspaces', async (req, res) => {
   try {
