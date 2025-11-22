@@ -1254,6 +1254,110 @@ app.post('/clone-repo', async (req, res) => {
   }
 });
 
+// Workspace identification endpoint - creates/reads .labcart/workspace.json
+app.post('/workspace/identify', async (req, res) => {
+  try {
+    const { workspacePath } = req.body;
+
+    if (!workspacePath || typeof workspacePath !== 'string') {
+      return res.status(400).json({
+        error: 'Workspace path is required'
+      });
+    }
+
+    const fs = require('fs');
+    const path = require('path');
+    const { randomUUID } = require('crypto');
+
+    // Verify the workspace path exists
+    if (!fs.existsSync(workspacePath)) {
+      return res.status(404).json({
+        error: 'Workspace path does not exist'
+      });
+    }
+
+    // Check if it's a directory
+    const stats = fs.statSync(workspacePath);
+    if (!stats.isDirectory()) {
+      return res.status(400).json({
+        error: 'Workspace path must be a directory'
+      });
+    }
+
+    const labcartDir = path.join(workspacePath, '.labcart');
+    const workspaceFile = path.join(labcartDir, 'workspace.json');
+
+    let workspaceId;
+    let isNew = false;
+
+    // Check if .labcart/workspace.json exists
+    if (fs.existsSync(workspaceFile)) {
+      // Read existing workspace ID
+      try {
+        const fileContent = fs.readFileSync(workspaceFile, 'utf8');
+        const data = JSON.parse(fileContent);
+
+        if (data.workspaceId && typeof data.workspaceId === 'string') {
+          workspaceId = data.workspaceId;
+          console.log(`🔵 Workspace identified: ${workspaceId} at ${workspacePath}`);
+        } else {
+          // Invalid format - regenerate
+          throw new Error('Invalid workspace.json format');
+        }
+      } catch (error) {
+        console.error('Error reading workspace.json:', error);
+        // File is corrupted - regenerate
+        workspaceId = randomUUID();
+        isNew = true;
+      }
+    } else {
+      // New workspace - generate UUID
+      workspaceId = randomUUID();
+      isNew = true;
+      console.log(`🟢 New workspace created: ${workspaceId} at ${workspacePath}`);
+    }
+
+    // Create or update the .labcart directory and workspace.json
+    if (isNew) {
+      // Create .labcart directory if it doesn't exist
+      if (!fs.existsSync(labcartDir)) {
+        fs.mkdirSync(labcartDir, { recursive: true });
+      }
+
+      // Write workspace.json
+      const workspaceData = {
+        workspaceId,
+        createdAt: new Date().toISOString(),
+        path: workspacePath,
+      };
+
+      fs.writeFileSync(workspaceFile, JSON.stringify(workspaceData, null, 2), 'utf8');
+
+      // Create .gitignore if it doesn't exist
+      const gitignorePath = path.join(labcartDir, '.gitignore');
+      if (!fs.existsSync(gitignorePath)) {
+        fs.writeFileSync(gitignorePath, '# LabCart workspace metadata\n*\n', 'utf8');
+      }
+
+      console.log(`✓ Created .labcart/workspace.json`);
+    }
+
+    res.json({
+      success: true,
+      workspaceId,
+      workspacePath,
+      isNew,
+    });
+
+  } catch (error) {
+    console.error('Error identifying workspace:', error);
+    res.status(500).json({
+      error: 'Failed to identify workspace',
+      message: error.message
+    });
+  }
+});
+
 // File system listing endpoint
 app.get('/files', (req, res) => {
   try {
