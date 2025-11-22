@@ -879,28 +879,186 @@ async function connectToProxy() {
     });
 
     // Handle messages from proxy (from frontend IDE clients)
-    proxySocket.on('message', (rawData) => {
+    proxySocket.on('message', async (rawData) => {
       try {
         const message = JSON.parse(rawData.toString());
         const eventType = message.event || message.type;
+        const data = message.data;
         console.log('📨 Received from IDE proxy:', eventType || 'unknown');
 
-        // Forward to local Socket.IO server with appropriate event name
+        // Helper to send response back through proxy
+        const sendToProxy = (event, data) => {
+          if (proxySocket.readyState === WebSocket.OPEN) {
+            proxySocket.send(JSON.stringify({ event, data }));
+          }
+        };
+
+        // Process messages directly (no Socket.IO clients exist in proxy mode)
         switch (eventType) {
           case 'chat:send':
-            io.emit('remote:chat:send', message.data);
+          case 'send-message': {
+            const { botId, userId, message: userMessage, workspacePath } = data;
+            console.log(`📨 Message from IDE for bot ${botId} (workspace: ${workspacePath}):`, userMessage);
+
+            try {
+              const botInfo = manager.bots.get(botId);
+              if (!botInfo) {
+                sendToProxy('error', { message: `Bot ${botId} not found` });
+                return;
+              }
+
+              // Get or create session for this bot + user
+              const currentUuid = manager.sessionManager.getCurrentUuid(botId, userId);
+              const isNewSession = !currentUuid;
+
+              if (isNewSession) {
+                console.log(`🆕 [${botId}] New IDE session for user ${userId}`);
+              } else {
+                console.log(`📝 [${botId}] Resuming IDE session ${currentUuid.substring(0, 8)}... for user ${userId}`);
+              }
+
+              // Build system prompt for new sessions
+              let fullMessage;
+              if (isNewSession) {
+                const systemPrompt = await manager.brainLoader.buildSystemPrompt(
+                  botInfo.config.brain,
+                  { id: userId, username: 'ide_user' }
+                );
+                const securityReminder = await manager.brainLoader.getSecurityReminder(botInfo.config.brain);
+
+                fullMessage = securityReminder
+                  ? `${systemPrompt}\n\n---\n\n${securityReminder}\n\n<<<USER_TEXT_START>>>${userMessage}<<<USER_TEXT_END>>>`
+                  : `${systemPrompt}\n\n<<<USER_TEXT_START>>>${userMessage}<<<USER_TEXT_END>>>`;
+              } else {
+                const securityReminder = await manager.brainLoader.getSecurityReminder(botInfo.config.brain);
+                fullMessage = securityReminder
+                  ? `${securityReminder}\n\n<<<USER_TEXT_START>>>${userMessage}<<<USER_TEXT_END>>>`
+                  : `<<<USER_TEXT_START>>>${userMessage}<<<USER_TEXT_END>>>`;
+              }
+
+              // Send to Claude directly
+              const { sendToClaudeSession } = require('./lib/claude-client');
+
+              sendToProxy('bot-thinking', { botId });
+
+              const result = await sendToClaudeSession({
+                message: fullMessage,
+                sessionId: currentUuid,
+                claudeCmd: manager.claudeCmd,
+                workspacePath: workspacePath || process.env.LABCART_WORKSPACE || process.cwd()
+              });
+
+              // Save the session UUID
+              const sessionUuid = result.metadata?.sessionInfo?.sessionId;
+              if (sessionUuid) {
+                const workspace = workspacePath || process.env.LABCART_WORKSPACE || process.cwd();
+                manager.sessionManager.setCurrentUuid(botId, userId, sessionUuid, workspace);
+                console.log(`💾 [${botId}] Saved UUID ${sessionUuid.substring(0, 8)}... for IDE user ${userId} (workspace: ${workspace})`);
+              }
+
+              // Update session manager
+              manager.sessionManager.incrementMessageCount(botId, userId);
+              manager.sessionManager.incrementMessageCount(botId, userId);
+
+              if (result.success && result.text) {
+                sendToProxy('bot-message', {
+                  botId,
+                  userId,
+                  message: result.text,
+                  sessionUuid: sessionUuid || null,
+                  hasAudio: false,
+                  hasImages: false,
+                  timestamp: Date.now()
+                });
+
+                console.log(`✅ [${botId}] Response sent to IDE (${result.text.length} chars)`);
+              } else {
+                sendToProxy('error', { message: 'Bot returned no response' });
+              }
+            } catch (error) {
+              console.error('❌ Error handling IDE message:', error);
+              sendToProxy('error', { message: error.message });
+            }
             break;
-          case 'terminal:create':
-            io.emit('remote:terminal:create', message.data);
+          }
+
+          case 'terminal:create': {
+            const { terminalId, cwd, cols, rows, botId } = data;
+            console.log(`🖥️  Create terminal request from IDE: ${terminalId}`);
+
+            try {
+              // If terminal already exists, kill it first
+              const existing = terminalManager.get(terminalId);
+              if (existing) {
+                console.log(`🔄 Terminal ${terminalId} already exists, killing and recreating...`);
+                terminalManager.kill(terminalId);
+              }
+
+              const terminal = terminalManager.create(terminalId, {
+                cwd: cwd || process.cwd(),
+                cols: cols || 80,
+                rows: rows || 30,
+                botId
+              });
+
+              // Attach data listener to stream output back to IDE
+              const terminalObj = terminalManager.get(terminalId);
+              if (terminalObj) {
+                terminalObj.ptyProcess.onData((data) => {
+                  sendToProxy('terminal:output', { terminalId, data });
+                });
+
+                terminalObj.ptyProcess.onExit(({ exitCode, signal }) => {
+                  console.log(`🖥️  Terminal ${terminalId} exited with code ${exitCode}${signal ? ` (signal: ${signal})` : ''}`);
+                  sendToProxy('terminal:exit', { terminalId, exitCode, signal });
+                  terminalManager.kill(terminalId);
+                });
+              }
+
+              sendToProxy('terminal:created', { terminalId, ...terminal });
+            } catch (error) {
+              console.error(`❌ Error creating terminal ${terminalId}:`, error);
+              sendToProxy('terminal:error', { terminalId, error: error.message });
+            }
             break;
-          case 'terminal:input':
-            io.emit('remote:terminal:input', message.data);
+          }
+
+          case 'terminal:input': {
+            const { terminalId, data: inputData } = data;
+            try {
+              terminalManager.write(terminalId, inputData);
+            } catch (error) {
+              console.error(`❌ Error writing to terminal ${terminalId}:`, error);
+              sendToProxy('terminal:error', { terminalId, error: error.message });
+            }
             break;
-          case 'terminal:kill':
-            io.emit('remote:terminal:kill', message.data);
+          }
+
+          case 'terminal:resize': {
+            const { terminalId, cols, rows } = data;
+            try {
+              terminalManager.resize(terminalId, cols, rows);
+            } catch (error) {
+              console.error(`❌ Error resizing terminal ${terminalId}:`, error);
+              sendToProxy('terminal:error', { terminalId, error: error.message });
+            }
             break;
+          }
+
+          case 'terminal:kill': {
+            const { terminalId } = data;
+            try {
+              terminalManager.kill(terminalId);
+              sendToProxy('terminal:killed', { terminalId });
+            } catch (error) {
+              console.error(`❌ Error killing terminal ${terminalId}:`, error);
+              sendToProxy('terminal:error', { terminalId, error: error.message });
+            }
+            break;
+          }
+
           default:
-            console.log('⚠️  Unknown message:', eventType, message);
+            console.log('⚠️  Unknown message from IDE:', eventType, message);
         }
       } catch (error) {
         console.error('❌ Error parsing proxy message:', error);
