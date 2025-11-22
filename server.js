@@ -190,8 +190,11 @@ const app = express();
 
 // CORS middleware for HTTP requests (fetch API calls from browser)
 app.use((req, res, next) => {
-  // Allow all origins since requests come through our controlled proxy
-  res.header('Access-Control-Allow-Origin', '*');
+  const allowedOrigins = ['http://localhost:3000', 'https://labcart.io'];
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') {
@@ -835,6 +838,9 @@ io.on('connection', (socket) => {
 manager.io = io;
 
 /**
+ * Register this bot server with the coordination API
+ */
+/**
  * Connect to WebSocket proxy for remote IDE connections
  */
 async function connectToProxy() {
@@ -849,46 +855,60 @@ async function connectToProxy() {
   }
 
   try {
-    const WebSocket = require('ws');
+    const { io: ioClient } = require('socket.io-client');
 
     console.log(`🔌 Connecting to IDE WebSocket proxy...`);
     console.log(`   Proxy URL: ${proxyUrl}`);
     console.log(`   User ID: ${userId}`);
     console.log(`   Server URL: ${serverUrl}`);
 
-    // Build WebSocket URL with query parameters
-    const wsUrl = `${proxyUrl}?userId=${encodeURIComponent(userId)}&type=bot-server&serverUrl=${encodeURIComponent(serverUrl)}`;
+    // Connect as bot-server to proxy
+    const proxySocket = ioClient(proxyUrl, {
+      transports: ['websocket', 'polling'],
+      query: {
+        userId,
+        type: 'bot-server',
+        serverUrl
+      },
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000
+    });
 
-    // Connect as bot-server to proxy using raw WebSocket
-    const proxySocket = new WebSocket(wsUrl);
-
-    proxySocket.on('open', () => {
+    proxySocket.on('connect', () => {
       console.log(`✅ Connected to IDE WebSocket proxy`);
     });
 
-    proxySocket.on('close', (code, reason) => {
-      console.log(`⚠️  Disconnected from IDE proxy: ${code} ${reason}`);
-      // Attempt to reconnect after 5 seconds
-      setTimeout(() => connectToProxy(), 5000);
+    proxySocket.on('disconnect', (reason) => {
+      console.log(`⚠️  Disconnected from IDE proxy: ${reason}`);
     });
 
     proxySocket.on('error', (error) => {
-      console.error(`❌ IDE proxy error:`, error.message);
+      console.error(`❌ IDE proxy error:`, error);
     });
 
     // Handle messages from proxy (from frontend IDE clients)
-    proxySocket.on('message', (data) => {
-      try {
-        const message = JSON.parse(data.toString());
-        console.log('📨 Received message from IDE proxy:', message);
+    // These are the same events the local Socket.IO server handles
+    proxySocket.on('chat:send', (data) => {
+      // Find the existing handler in the local io server
+      // We'll trigger the same logic by emitting to a special namespace
+      console.log('📨 Received chat:send from IDE proxy:', data);
+      io.emit('remote:chat:send', data);
+    });
 
-        // Forward to local Socket.IO server based on event type
-        if (message.event) {
-          io.emit(message.event, message.data);
-        }
-      } catch (error) {
-        console.error('Error parsing proxy message:', error);
-      }
+    proxySocket.on('terminal:create', (data) => {
+      console.log('📨 Received terminal:create from IDE proxy:', data);
+      io.emit('remote:terminal:create', data);
+    });
+
+    proxySocket.on('terminal:input', (data) => {
+      console.log('📨 Received terminal:input from IDE proxy:', data);
+      io.emit('remote:terminal:input', data);
+    });
+
+    proxySocket.on('terminal:kill', (data) => {
+      console.log('📨 Received terminal:kill from IDE proxy:', data);
+      io.emit('remote:terminal:kill', data);
     });
 
     // Store proxy socket reference for bot manager to emit messages back
@@ -901,9 +921,6 @@ async function connectToProxy() {
   }
 }
 
-/**
- * Register this bot server with the coordination API
- */
 async function registerServer() {
   const serverId = process.env.SERVER_ID || `server-${require('os').hostname()}`;
   const serverUrl = process.env.SERVER_URL || `http://localhost:${HTTP_PORT}`;
@@ -1021,6 +1038,125 @@ app.post('/resolve-workspace', async (req, res) => {
     res.json({ path: foundPath });
   } catch (error) {
     console.error('Error resolving workspace:', error);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+// List available workspaces in ~/labcart-projects/
+app.get('/list-workspaces', async (req, res) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const home = process.env.HOME || process.env.USERPROFILE;
+    const workspacesDir = path.join(home, 'labcart-projects');
+
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(workspacesDir)) {
+      fs.mkdirSync(workspacesDir, { recursive: true });
+    }
+
+    // Read directories
+    const entries = fs.readdirSync(workspacesDir, { withFileTypes: true });
+    const workspaces = entries
+      .filter(entry => entry.isDirectory())
+      .map(entry => {
+        const workspacePath = path.join(workspacesDir, entry.name);
+        const stats = fs.statSync(workspacePath);
+
+        // Check if it's a git repo
+        const isGitRepo = fs.existsSync(path.join(workspacePath, '.git'));
+
+        return {
+          name: entry.name,
+          path: workspacePath,
+          isGitRepo,
+          lastModified: stats.mtime,
+        };
+      })
+      .sort((a, b) => b.lastModified - a.lastModified); // Most recent first
+
+    res.json({ workspaces });
+  } catch (error) {
+    console.error('Error listing workspaces:', error);
+    res.status(500).json({ error: 'Failed to list workspaces', message: error.message });
+  }
+});
+
+// Clone GitHub repository to ~/labcart-projects/
+app.post('/clone-repo', async (req, res) => {
+  try {
+    const { repoUrl } = req.body;
+
+    if (!repoUrl) {
+      return res.status(400).json({ error: 'Repository URL is required' });
+    }
+
+    // Validate GitHub URL format
+    const githubPattern = /^https?:\/\/(www\.)?github\.com\/[\w-]+\/[\w.-]+/;
+    if (!githubPattern.test(repoUrl)) {
+      return res.status(400).json({
+        error: 'Invalid GitHub URL',
+        message: 'Please provide a valid GitHub repository URL (e.g., https://github.com/user/repo)'
+      });
+    }
+
+    const fs = require('fs');
+    const path = require('path');
+    const { execSync } = require('child_process');
+    const home = process.env.HOME || process.env.USERPROFILE;
+    const workspacesDir = path.join(home, 'labcart-projects');
+
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(workspacesDir)) {
+      fs.mkdirSync(workspacesDir, { recursive: true });
+    }
+
+    // Extract repo name from URL
+    const repoName = repoUrl.split('/').pop().replace(/\.git$/, '');
+    const targetPath = path.join(workspacesDir, repoName);
+
+    // Check if directory already exists
+    if (fs.existsSync(targetPath)) {
+      return res.status(409).json({
+        error: 'Workspace already exists',
+        message: `A workspace named "${repoName}" already exists`,
+        path: targetPath
+      });
+    }
+
+    console.log(`📦 Cloning ${repoUrl} to ${targetPath}...`);
+
+    // Clone the repository
+    try {
+      execSync(`git clone "${repoUrl}" "${targetPath}"`, {
+        stdio: 'pipe',
+        timeout: 60000 // 60 second timeout
+      });
+
+      console.log(`✅ Successfully cloned ${repoName}`);
+
+      res.json({
+        success: true,
+        name: repoName,
+        path: targetPath,
+        message: `Successfully cloned ${repoName}`
+      });
+    } catch (cloneError) {
+      console.error(`❌ Git clone failed:`, cloneError.message);
+
+      // Clean up partial clone if it exists
+      if (fs.existsSync(targetPath)) {
+        fs.rmSync(targetPath, { recursive: true, force: true });
+      }
+
+      return res.status(500).json({
+        error: 'Clone failed',
+        message: cloneError.message
+      });
+    }
+
+  } catch (error) {
+    console.error('Error cloning repository:', error);
     res.status(500).json({ error: 'Internal server error', message: error.message });
   }
 });
