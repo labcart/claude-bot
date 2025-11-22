@@ -882,10 +882,11 @@ async function connectToProxy() {
     proxySocket.on('message', (rawData) => {
       try {
         const message = JSON.parse(rawData.toString());
-        console.log('📨 Received from IDE proxy:', message.type || 'unknown');
+        const eventType = message.event || message.type;
+        console.log('📨 Received from IDE proxy:', eventType || 'unknown');
 
         // Forward to local Socket.IO server with appropriate event name
-        switch (message.type) {
+        switch (eventType) {
           case 'chat:send':
             io.emit('remote:chat:send', message.data);
             break;
@@ -899,7 +900,7 @@ async function connectToProxy() {
             io.emit('remote:terminal:kill', message.data);
             break;
           default:
-            console.log('⚠️  Unknown message type:', message.type);
+            console.log('⚠️  Unknown message:', eventType, message);
         }
       } catch (error) {
         console.error('❌ Error parsing proxy message:', error);
