@@ -838,6 +838,87 @@ io.on('connection', (socket) => {
 manager.io = io;
 
 /**
+ * Connect to WebSocket proxy for remote IDE connections
+ */
+async function connectToProxy() {
+  const userId = process.env.USER_ID;
+  const serverUrl = process.env.SERVER_URL || `http://localhost:${HTTP_PORT}`;
+  const proxyUrl = process.env.IDE_WS_PROXY_URL || 'wss://ide-ws.labcart.io';
+
+  if (!userId) {
+    console.log('ℹ️  No USER_ID configured - skipping proxy connection');
+    console.log('   Set USER_ID env var to enable IDE proxy\n');
+    return;
+  }
+
+  try {
+    const { io: ioClient } = require('socket.io-client');
+
+    console.log(`🔌 Connecting to IDE WebSocket proxy...`);
+    console.log(`   Proxy URL: ${proxyUrl}`);
+    console.log(`   User ID: ${userId}`);
+    console.log(`   Server URL: ${serverUrl}`);
+
+    // Connect as bot-server to proxy
+    const proxySocket = ioClient(proxyUrl, {
+      transports: ['websocket', 'polling'],
+      query: {
+        userId,
+        type: 'bot-server',
+        serverUrl
+      },
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000
+    });
+
+    proxySocket.on('connect', () => {
+      console.log(`✅ Connected to IDE WebSocket proxy`);
+    });
+
+    proxySocket.on('disconnect', (reason) => {
+      console.log(`⚠️  Disconnected from IDE proxy: ${reason}`);
+    });
+
+    proxySocket.on('error', (error) => {
+      console.error(`❌ IDE proxy error:`, error);
+    });
+
+    // Handle messages from proxy (from frontend IDE clients)
+    // These are the same events the local Socket.IO server handles
+    proxySocket.on('chat:send', (data) => {
+      // Find the existing handler in the local io server
+      // We'll trigger the same logic by emitting to a special namespace
+      console.log('📨 Received chat:send from IDE proxy:', data);
+      io.emit('remote:chat:send', data);
+    });
+
+    proxySocket.on('terminal:create', (data) => {
+      console.log('📨 Received terminal:create from IDE proxy:', data);
+      io.emit('remote:terminal:create', data);
+    });
+
+    proxySocket.on('terminal:input', (data) => {
+      console.log('📨 Received terminal:input from IDE proxy:', data);
+      io.emit('remote:terminal:input', data);
+    });
+
+    proxySocket.on('terminal:kill', (data) => {
+      console.log('📨 Received terminal:kill from IDE proxy:', data);
+      io.emit('remote:terminal:kill', data);
+    });
+
+    // Store proxy socket reference for bot manager to emit messages back
+    manager.proxySocket = proxySocket;
+
+    console.log(`✅ IDE proxy bridge established\n`);
+
+  } catch (error) {
+    console.error(`❌ Failed to connect to IDE proxy:`, error.message);
+  }
+}
+
+/**
  * Register this bot server with the coordination API
  */
 async function registerServer() {
@@ -1110,6 +1191,9 @@ httpServer.listen(HTTP_PORT, async () => {
 
   // Register with coordination API
   await registerServer();
+
+  // Connect to WebSocket proxy for remote IDE connections
+  await connectToProxy();
 });
 
 // Graceful shutdown handlers

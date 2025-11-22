@@ -15,8 +15,9 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// Import provider from local directory
+// Import providers from local directory
 import { OpenAIDALLEProvider } from './providers/openai-dalle.js';
+import { ReplicateProvider } from './providers/replicate.js';
 import { requestQueue } from './utils/request-queue.js';
 import { logUsage } from './utils/usage-logger.js';
 
@@ -37,17 +38,41 @@ try {
   process.exit(1);
 }
 
-// Initialize provider
+// Initialize providers
 const providerName = config.provider || 'openai';
 let imageProvider;
 
+// Initialize both providers
+const openaiProvider = new OpenAIDALLEProvider(config.openai);
+openaiProvider.config.output_dir = config.output_dir;
+openaiProvider.config.output_format = config.output_format;
+
+const replicateProvider = new ReplicateProvider(config.replicate || {});
+replicateProvider.config.output_dir = config.output_dir;
+replicateProvider.config.output_format = config.output_format;
+
+// Default provider based on config
 if (providerName === 'openai') {
-  imageProvider = new OpenAIDALLEProvider(config.openai);
-  imageProvider.config.output_dir = config.output_dir;
-  imageProvider.config.output_format = config.output_format;
+  imageProvider = openaiProvider;
+} else if (providerName === 'replicate') {
+  imageProvider = replicateProvider;
 } else {
   console.error(`❌ Unknown provider: ${providerName}`);
   process.exit(1);
+}
+
+// Helper function to get provider based on model parameter
+function getProviderForModel(model) {
+  if (!model) return imageProvider; // Use default
+
+  // Route based on model prefix
+  if (model.startsWith('sdxl') || model.startsWith('sd-') || model.startsWith('stability-ai/')) {
+    return replicateProvider;
+  } else if (model.startsWith('dall-e') || model.startsWith('gpt-image')) {
+    return openaiProvider;
+  }
+
+  return imageProvider; // Fallback to default
 }
 
 console.log(`🎨 Image Generation HTTP Service starting with provider: ${providerName}`);
@@ -168,30 +193,38 @@ app.post('/generate_image', async (req, res) => {
     }
 
     // Guard rail: prevent excessive prompt length
-    if (prompt.length > 4000) {
+    // DALL-E 3 has no documented limit, but let's cap at 10000 to be safe
+    if (prompt.length > 10000) {
       return res.status(400).json({
-        error: `Prompt too long (${prompt.length} characters). Maximum: 4000 characters.`
+        error: `Prompt too long (${prompt.length} characters). Maximum: 10000 characters.`
       });
     }
 
-    console.log(`🎨 [HTTP] Generating image with ${providerName}: "${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}"`);
+    // Select provider based on model
+    const provider = getProviderForModel(model);
+
+    console.log(`🎨 [HTTP] Generating image with ${provider === openaiProvider ? 'OpenAI' : 'Replicate'}: "${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}"`);
+    console.log(`📝 [HTTP] FULL PROMPT:\n${prompt}`);
 
     const startTime = Date.now();
 
     // Override output directory if provided in request (allows multi-bot usage)
     if (output_dir) {
       console.log(`📂 [HTTP] Using custom output directory: ${output_dir}`);
-      imageProvider.config.output_dir = output_dir;
+      provider.config.output_dir = output_dir;
     }
 
     // Use queue to prevent concurrent API calls
     const result = await requestQueue.add(async () => {
-      return await imageProvider.generateImage({
+      return await provider.generateImage({
         prompt,
         model,
         size,
         quality,
         style,
+        seed: req.body.seed, // Replicate-specific
+        num_inference_steps: req.body.num_inference_steps, // Replicate-specific
+        guidance_scale: req.body.guidance_scale, // Replicate-specific
         n,
         filename,
       });
@@ -274,7 +307,7 @@ app.post('/generate_image', async (req, res) => {
 // Execute edit_image tool
 app.post('/edit_image', async (req, res) => {
   try {
-    const { image, prompt, mask, size, n, include_base64 = false, filename, output_dir } = req.body;
+    const { image, prompt, negative_prompt, mask, model, size, quality, input_fidelity, n, include_base64 = false, filename, output_dir } = req.body;
 
     if (!image) {
       return res.status(400).json({ error: 'image parameter is required' });
@@ -284,23 +317,38 @@ app.post('/edit_image', async (req, res) => {
       return res.status(400).json({ error: 'prompt parameter is required' });
     }
 
-    console.log(`✏️  [HTTP] Editing image: "${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}"`);
+    console.log(`✏️  [HTTP] Editing image with ${model || 'dall-e-2'}: "${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}"`);
+    if (model === 'gpt-image-1') {
+      console.log(`📝 [HTTP] GPT-Image-1 params: quality=${quality || 'default'}, input_fidelity=${input_fidelity || 'default'}`);
+    }
+    console.log(`📝 [HTTP] FULL PROMPT:\n${prompt}`);
 
     const startTime = Date.now();
+
+    // Select provider based on model
+    const provider = getProviderForModel(model);
 
     // Override output directory if provided in request (allows multi-bot usage)
     if (output_dir) {
       console.log(`📂 [HTTP] Using custom output directory: ${output_dir}`);
-      imageProvider.config.output_dir = output_dir;
+      provider.config.output_dir = output_dir;
     }
 
     // Use queue to prevent concurrent API calls
     const result = await requestQueue.add(async () => {
-      return await imageProvider.editImage({
+      return await provider.editImage({
         image,
         prompt,
+        negative_prompt,
         mask,
+        model,
         size,
+        quality,
+        input_fidelity,
+        strength: req.body.strength, // Replicate-specific
+        seed: req.body.seed, // Replicate-specific
+        num_inference_steps: req.body.num_inference_steps, // Replicate-specific
+        guidance_scale: req.body.guidance_scale, // Replicate-specific
         n,
         filename,
       });
