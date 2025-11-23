@@ -847,11 +847,36 @@ manager.io = io;
  * Register this bot server with the coordination API
  */
 /**
+ * Discover the current Cloudflare tunnel URL by reading PM2 logs
+ */
+async function discoverTunnelUrl() {
+  const { execSync } = require('child_process');
+
+  try {
+    // Read the last 200 lines of the tunnel process logs
+    const logs = execSync('npx pm2 logs labcart-tunnel --lines 200 --nostream 2>/dev/null', {
+      encoding: 'utf8',
+      timeout: 5000
+    });
+
+    // Extract the most recent tunnel URL
+    const urlMatch = logs.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/g);
+    if (urlMatch && urlMatch.length > 0) {
+      // Get the last (most recent) URL
+      return urlMatch[urlMatch.length - 1];
+    }
+  } catch (error) {
+    console.warn('⚠️  Could not discover tunnel URL from logs:', error.message);
+  }
+
+  return null;
+}
+
+/**
  * Connect to WebSocket proxy for remote IDE connections
  */
 async function connectToProxy() {
   const userId = process.env.USER_ID;
-  const serverUrl = process.env.SERVER_URL || `http://localhost:${HTTP_PORT}`;
   const proxyUrl = process.env.IDE_WS_PROXY_URL || 'wss://ide-ws.labcart.io';
 
   if (!userId) {
@@ -862,6 +887,17 @@ async function connectToProxy() {
 
   try {
     const WebSocket = require('ws');
+
+    // Dynamically discover the current tunnel URL
+    let serverUrl = await discoverTunnelUrl();
+
+    if (!serverUrl) {
+      // Fallback to env var or localhost
+      serverUrl = process.env.SERVER_URL || `http://localhost:${HTTP_PORT}`;
+      console.log('⚠️  Using fallback server URL from env');
+    } else {
+      console.log('✅ Discovered current tunnel URL from logs');
+    }
 
     console.log(`🔌 Connecting to IDE WebSocket proxy...`);
     console.log(`   Proxy URL: ${proxyUrl}`);
@@ -1081,7 +1117,6 @@ async function connectToProxy() {
 
 async function registerServer() {
   const serverId = process.env.SERVER_ID || `server-${require('os').hostname()}`;
-  const serverUrl = process.env.SERVER_URL || `http://localhost:${HTTP_PORT}`;
   const userId = process.env.USER_ID;
   const coordinationUrl = process.env.COORDINATION_URL || 'http://localhost:3000/api/servers/register';
 
@@ -1089,6 +1124,17 @@ async function registerServer() {
     console.log('ℹ️  No USER_ID configured - skipping server registration');
     console.log('   Set USER_ID env var to enable coordination\n');
     return;
+  }
+
+  // Dynamically discover the current tunnel URL
+  let serverUrl = await discoverTunnelUrl();
+
+  if (!serverUrl) {
+    // Fallback to env var or localhost
+    serverUrl = process.env.SERVER_URL || `http://localhost:${HTTP_PORT}`;
+    console.log('⚠️  Using fallback server URL from env for registration');
+  } else {
+    console.log('✅ Discovered current tunnel URL for registration');
   }
 
   try {
