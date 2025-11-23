@@ -1634,6 +1634,157 @@ app.get('/read-file', (req, res) => {
   }
 });
 
+// Write/save file endpoint
+app.post('/write-file', (req, res) => {
+  try {
+    const { filePath, content, workspace } = req.body;
+    const workspacePath = workspace || process.cwd();
+
+    if (!filePath || content === undefined) {
+      return res.status(400).json({ error: 'Path and content required' });
+    }
+
+    // Security: Ensure we're only writing to the workspace
+    const normalizedPath = path.normalize(filePath);
+    const normalizedWorkspace = path.normalize(workspacePath);
+    if (!normalizedPath.startsWith(normalizedWorkspace)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Ensure parent directory exists
+    const parentDir = path.dirname(normalizedPath);
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true });
+    }
+
+    // Write the file
+    fs.writeFileSync(normalizedPath, content, 'utf-8');
+    res.json({ success: true, path: normalizedPath });
+  } catch (error) {
+    console.error('Error writing file:', error);
+    res.status(500).json({ error: 'Failed to write file' });
+  }
+});
+
+// Create file or directory endpoint
+app.post('/create-file', (req, res) => {
+  try {
+    const { parentPath, name, type, workspace } = req.body;
+    const workspacePath = workspace || process.cwd();
+
+    if (!parentPath || !name || !type) {
+      return res.status(400).json({ error: 'parentPath, name, and type required' });
+    }
+
+    const newPath = path.join(parentPath, name);
+
+    // Security: Ensure we're only creating within the workspace
+    const normalizedPath = path.normalize(newPath);
+    const normalizedWorkspace = path.normalize(workspacePath);
+    if (!normalizedPath.startsWith(normalizedWorkspace)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Check if already exists
+    if (fs.existsSync(normalizedPath)) {
+      return res.status(409).json({ error: 'File or directory already exists' });
+    }
+
+    if (type === 'directory') {
+      fs.mkdirSync(normalizedPath, { recursive: true });
+    } else {
+      // Create empty file
+      fs.writeFileSync(normalizedPath, '', 'utf-8');
+    }
+
+    res.json({ success: true, path: normalizedPath });
+  } catch (error) {
+    console.error('Error creating file:', error);
+    res.status(500).json({ error: 'Failed to create file' });
+  }
+});
+
+// Rename file endpoint
+app.post('/rename-file', (req, res) => {
+  try {
+    const { oldPath, newName, workspace } = req.body;
+    const workspacePath = workspace || process.cwd();
+
+    if (!oldPath || !newName) {
+      return res.status(400).json({ error: 'oldPath and newName required' });
+    }
+
+    // Security: Ensure both paths are within workspace
+    const normalizedOldPath = path.normalize(oldPath);
+    const normalizedWorkspace = path.normalize(workspacePath);
+    if (!normalizedOldPath.startsWith(normalizedWorkspace)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const parentDir = path.dirname(normalizedOldPath);
+    const newPath = path.join(parentDir, newName);
+    const normalizedNewPath = path.normalize(newPath);
+
+    if (!normalizedNewPath.startsWith(normalizedWorkspace)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Check if old path exists
+    if (!fs.existsSync(normalizedOldPath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    // Check if new path already exists
+    if (fs.existsSync(normalizedNewPath)) {
+      return res.status(409).json({ error: 'Target already exists' });
+    }
+
+    // Rename
+    fs.renameSync(normalizedOldPath, normalizedNewPath);
+    res.json({ success: true, path: normalizedNewPath });
+  } catch (error) {
+    console.error('Error renaming file:', error);
+    res.status(500).json({ error: 'Failed to rename file' });
+  }
+});
+
+// Delete file endpoint
+app.delete('/delete-file', (req, res) => {
+  try {
+    const { filePath, workspace } = req.body;
+    const workspacePath = workspace || process.cwd();
+
+    if (!filePath) {
+      return res.status(400).json({ error: 'filePath required' });
+    }
+
+    // Security: Ensure we're only deleting from workspace
+    const normalizedPath = path.normalize(filePath);
+    const normalizedWorkspace = path.normalize(workspacePath);
+    if (!normalizedPath.startsWith(normalizedWorkspace)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Check if exists
+    if (!fs.existsSync(normalizedPath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    // Delete file or directory
+    const stats = fs.statSync(normalizedPath);
+    if (stats.isDirectory()) {
+      fs.rmSync(normalizedPath, { recursive: true, force: true });
+    } else {
+      fs.unlinkSync(normalizedPath);
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting file:', error);
+    res.status(500).json({ error: 'Failed to delete file' });
+  }
+});
+
 // File system watching endpoint (Server-Sent Events)
 app.get('/files/watch', (req, res) => {
   const workspacePath = req.query.workspace || process.cwd();
