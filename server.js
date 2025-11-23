@@ -1246,91 +1246,124 @@ app.post('/resolve-workspace', async (req, res) => {
   }
 });
 
-// Discover workspaces by finding .claude/ directories (recent Claude Code projects)
+// Discover workspaces by reading Claude CLI session files (cwd field)
 app.get('/discover-workspaces', async (req, res) => {
   try {
     const fs = require('fs');
     const path = require('path');
-    const { execSync } = require('child_process');
     const home = process.env.HOME || process.env.USERPROFILE;
 
-    console.log('🔍 Discovering workspaces via Claude session logs...');
+    console.log('🔍 Discovering workspaces via Claude CLI session files...');
 
-    // Search common locations for .claude directories
-    const searchPaths = [
-      home,
-      path.join(home, 'projects'),
-      path.join(home, 'dev'),
-      path.join(home, 'code'),
-      path.join(home, 'Documents'),
-      '/opt',
-      '/var/www',
-    ].filter(p => fs.existsSync(p));
+    // Claude CLI stores sessions at ~/.claude/projects/<workspace-path-with-dashes>/
+    const claudeProjectsDir = path.join(home, '.claude', 'projects');
+
+    if (!fs.existsSync(claudeProjectsDir)) {
+      console.log('⚠️  No Claude projects directory found');
+      return res.json({ workspaces: [] });
+    }
 
     const discoveredWorkspaces = [];
     const seenPaths = new Set();
+    const entries = fs.readdirSync(claudeProjectsDir, { withFileTypes: true });
 
-    for (const searchPath of searchPaths) {
+    // Filter out system/temp directories we don't want to show
+    const systemPaths = ['/opt', '/private/tmp', '/tmp', '/var', '/usr', '/System'];
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+
       try {
-        // Find .claude directories (max depth 4 to avoid too deep searches)
-        const findCmd = `find "${searchPath}" -maxdepth 4 -type d -name ".claude" 2>/dev/null`;
-        const result = execSync(findCmd, {
-          encoding: 'utf-8',
-          timeout: 5000,
-          maxBuffer: 1024 * 1024
-        }).trim();
+        const projectDir = path.join(claudeProjectsDir, entry.name);
 
-        if (!result) continue;
+        // Get the actual workspace path by reading session files
+        // Session files contain the real path in the `cwd` field
+        let workspacePath = null;
+        let lastUsed = null;
 
-        const claudeDirs = result.split('\n').filter(Boolean);
+        // Find a .jsonl file to read
+        const sessionFiles = fs.readdirSync(projectDir)
+          .filter(f => f.endsWith('.jsonl'))
+          .map(f => path.join(projectDir, f));
 
-        for (const claudeDir of claudeDirs) {
-          // Workspace path is the parent directory of .claude/
-          const workspacePath = path.dirname(claudeDir);
-
-          // Skip if already found
-          if (seenPaths.has(workspacePath)) continue;
-          seenPaths.add(workspacePath);
-
-          // Get workspace info
-          const stats = fs.statSync(workspacePath);
-          const name = path.basename(workspacePath);
-
-          // Check if it's a git repo
-          const isGitRepo = fs.existsSync(path.join(workspacePath, '.git'));
-
-          // Try to get last session time from .claude/ metadata
-          let lastUsed = stats.mtime;
+        // Read first non-empty session file to get cwd
+        for (const sessionFile of sessionFiles) {
           try {
-            const claudeFiles = fs.readdirSync(claudeDir);
-            // Look for session files or projects directory
-            const projectsDir = path.join(claudeDir, 'projects');
-            if (fs.existsSync(projectsDir)) {
-              const projectStat = fs.statSync(projectsDir);
-              lastUsed = projectStat.mtime;
+            const stat = fs.statSync(sessionFile);
+            if (stat.size === 0) continue;
+
+            const content = fs.readFileSync(sessionFile, 'utf-8');
+            const firstLine = content.trim().split('\n')[0];
+            if (!firstLine) continue;
+
+            const msg = JSON.parse(firstLine);
+            if (msg.cwd) {
+              workspacePath = msg.cwd;
+              lastUsed = new Date(msg.timestamp);
+              break;
             }
           } catch (err) {
-            // Fallback to directory mtime
+            // Skip invalid session files
+            continue;
           }
-
-          discoveredWorkspaces.push({
-            name,
-            path: workspacePath,
-            isGitRepo,
-            lastUsed,
-            source: 'claude-session',
-          });
         }
+
+        // Fallback: extract path from directory name if cwd not found
+        if (!workspacePath) {
+          // Directory names are encoded with dashes replacing slashes
+          // Example: -Users-macbook-play-project -> /Users/macbook/play/project
+          const dashedName = entry.name;
+          if (dashedName.startsWith('-')) {
+            workspacePath = '/' + dashedName.substring(1).replace(/-/g, '/');
+          } else {
+            continue;
+          }
+        }
+
+        // Skip if we've already seen this path
+        if (seenPaths.has(workspacePath)) continue;
+        seenPaths.add(workspacePath);
+
+        // Skip system/temp directories
+        const isSystemPath = systemPaths.some(sysPath => workspacePath.startsWith(sysPath));
+        if (isSystemPath) {
+          console.log(`   Skipping system path: ${workspacePath}`);
+          continue;
+        }
+
+        // Check if workspace directory actually exists
+        if (!fs.existsSync(workspacePath)) {
+          console.log(`   Skipping non-existent path: ${workspacePath}`);
+          continue;
+        }
+
+        // Use project directory mtime if we don't have a session timestamp
+        if (!lastUsed) {
+          const stats = fs.statSync(projectDir);
+          lastUsed = stats.mtime;
+        }
+
+        // Get workspace info
+        const name = path.basename(workspacePath);
+        const isGitRepo = fs.existsSync(path.join(workspacePath, '.git'));
+
+        discoveredWorkspaces.push({
+          name,
+          path: workspacePath,
+          isGitRepo,
+          lastUsed,
+          source: 'claude-session',
+        });
       } catch (err) {
-        console.error(`Error searching ${searchPath}:`, err.message);
-        // Continue to next search path
+        console.error(`Error processing ${entry.name}:`, err.message);
+        // Continue to next entry
       }
     }
 
     // Sort by most recently used
     discoveredWorkspaces.sort((a, b) => new Date(b.lastUsed) - new Date(a.lastUsed));
 
-    console.log(`✅ Discovered ${discoveredWorkspaces.length} workspaces via Claude sessions`);
+    console.log(`✅ Discovered ${discoveredWorkspaces.length} workspaces from Claude CLI sessions`);
 
     res.json({ workspaces: discoveredWorkspaces });
   } catch (error) {
