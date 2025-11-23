@@ -1546,6 +1546,42 @@ app.get('/files', (req, res) => {
   }
 });
 
+// Read individual file endpoint
+app.get('/read-file', (req, res) => {
+  try {
+    const workspacePath = req.query.workspace || process.cwd();
+    const filePath = req.query.path;
+
+    if (!filePath) {
+      return res.status(400).json({ error: 'Path required' });
+    }
+
+    // Security: Ensure we're only reading from the workspace
+    const normalizedPath = path.normalize(filePath);
+    const normalizedWorkspace = path.normalize(workspacePath);
+    if (!normalizedPath.startsWith(normalizedWorkspace)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Check if file exists
+    if (!fs.existsSync(normalizedPath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    // Check if it's a file (not directory)
+    const stats = fs.statSync(normalizedPath);
+    if (!stats.isFile()) {
+      return res.status(400).json({ error: 'Path is not a file' });
+    }
+
+    const content = fs.readFileSync(normalizedPath, 'utf-8');
+    res.json({ content, path: normalizedPath });
+  } catch (error) {
+    console.error('Error reading file:', error);
+    res.status(500).json({ error: 'Failed to read file' });
+  }
+});
+
 // File system watching endpoint (Server-Sent Events)
 app.get('/files/watch', (req, res) => {
   const workspacePath = req.query.workspace || process.cwd();
