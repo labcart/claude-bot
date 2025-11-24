@@ -874,7 +874,13 @@ async function discoverTunnelUrl() {
 
 /**
  * Connect to WebSocket proxy for remote IDE connections
+ * Includes auto-reconnect with exponential backoff
  */
+let proxyReconnectAttempts = 0;
+let proxyReconnectTimer = null;
+let isConnectingToProxy = false;
+let keepaliveInterval = null;
+
 async function connectToProxy() {
   const userId = process.env.USER_ID;
   const proxyUrl = process.env.IDE_WS_PROXY_URL || 'wss://ide-ws.labcart.io';
@@ -884,6 +890,14 @@ async function connectToProxy() {
     console.log('   Set USER_ID env var to enable IDE proxy\n');
     return;
   }
+
+  // Prevent multiple simultaneous connection attempts
+  if (isConnectingToProxy) {
+    console.log('⏸️  Already connecting to IDE proxy, skipping...');
+    return;
+  }
+
+  isConnectingToProxy = true;
 
   try {
     const WebSocket = require('ws');
@@ -910,14 +924,48 @@ async function connectToProxy() {
 
     proxySocket.on('open', () => {
       console.log(`✅ IDE proxy bridge established`);
+      isConnectingToProxy = false;
+      proxyReconnectAttempts = 0; // Reset reconnect counter on success
+
+      // Setup keepalive ping every 30 seconds
+      if (keepaliveInterval) clearInterval(keepaliveInterval);
+      keepaliveInterval = setInterval(() => {
+        if (proxySocket.readyState === WebSocket.OPEN) {
+          proxySocket.ping();
+        }
+      }, 30000);
     });
 
     proxySocket.on('close', (code, reason) => {
       console.log(`⚠️  Disconnected from IDE proxy: ${reason || code}`);
+      isConnectingToProxy = false;
+
+      // Clear keepalive
+      if (keepaliveInterval) {
+        clearInterval(keepaliveInterval);
+        keepaliveInterval = null;
+      }
+
+      // Auto-reconnect with exponential backoff
+      const delays = [5000, 10000, 20000, 30000]; // 5s, 10s, 20s, 30s (max)
+      const delay = delays[Math.min(proxyReconnectAttempts, delays.length - 1)];
+
+      proxyReconnectAttempts++;
+      console.log(`🔄 Attempting reconnect ${proxyReconnectAttempts} in ${delay/1000}s...`);
+
+      if (proxyReconnectTimer) clearTimeout(proxyReconnectTimer);
+      proxyReconnectTimer = setTimeout(() => {
+        connectToProxy();
+      }, delay);
     });
 
     proxySocket.on('error', (error) => {
-      console.error(`❌ IDE proxy error:`, error);
+      console.error(`❌ IDE proxy error:`, error.message);
+      isConnectingToProxy = false;
+    });
+
+    proxySocket.on('pong', () => {
+      // Keepalive pong received - connection alive
     });
 
     // Handle messages from proxy (from frontend IDE clients)
