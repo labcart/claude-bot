@@ -18,6 +18,7 @@ import { fileURLToPath } from 'url';
 // Import providers from local directory
 import { OpenAIDALLEProvider } from './providers/openai-dalle.js';
 import { ReplicateProvider } from './providers/replicate.js';
+import { GoogleImagenProvider } from './providers/google-imagen.js';
 import { requestQueue } from './utils/request-queue.js';
 import { logUsage } from './utils/usage-logger.js';
 
@@ -42,7 +43,7 @@ try {
 const providerName = config.provider || 'openai';
 let imageProvider;
 
-// Initialize both providers
+// Initialize all providers
 const openaiProvider = new OpenAIDALLEProvider(config.openai);
 openaiProvider.config.output_dir = config.output_dir;
 openaiProvider.config.output_format = config.output_format;
@@ -51,11 +52,17 @@ const replicateProvider = new ReplicateProvider(config.replicate || {});
 replicateProvider.config.output_dir = config.output_dir;
 replicateProvider.config.output_format = config.output_format;
 
+const imagenProvider = new GoogleImagenProvider(config.imagen || config.gemini || {});
+imagenProvider.config.output_dir = config.output_dir;
+imagenProvider.config.output_format = config.output_format;
+
 // Default provider based on config
 if (providerName === 'openai') {
   imageProvider = openaiProvider;
 } else if (providerName === 'replicate') {
   imageProvider = replicateProvider;
+} else if (providerName === 'gemini' || providerName === 'google') {
+  imageProvider = imagenProvider;
 } else {
   console.error(`❌ Unknown provider: ${providerName}`);
   process.exit(1);
@@ -70,6 +77,15 @@ function getProviderForModel(model) {
     return replicateProvider;
   } else if (model.startsWith('dall-e') || model.startsWith('gpt-image')) {
     return openaiProvider;
+  } else if (model.startsWith('imagen') || model.startsWith('gemini') || model.includes('nano-banana')) {
+    return imagenProvider;
+  } else if (model.includes('/') && model.includes(':')) {
+    // Replicate models have format: username/model:version
+    // e.g., "aolshaun/tooner-style-v1:48982e09..."
+    return replicateProvider;
+  } else if (model.includes('/')) {
+    // Other models with "/" are likely also Replicate
+    return replicateProvider;
   }
 
   return imageProvider; // Fallback to default
@@ -104,7 +120,7 @@ app.get('/schema', (req, res) => {
           },
           model: {
             type: 'string',
-            description: 'Model to use: dall-e-2, dall-e-3 (default: dall-e-3)',
+            description: 'Model to use: dall-e-2, dall-e-3, gpt-image-1 (OpenAI), imagen-4.0-fast-generate-001 (Imagen Fast - fastest, $0.02), imagen-4.0-generate-001 (Imagen 4 - best quality, $0.04), imagen-4.0-ultra-generate-001 (Imagen Ultra - highest prompt alignment)',
           },
           size: {
             type: 'string',
@@ -440,7 +456,7 @@ async function main() {
     // Initialize the image provider
     await imageProvider.initialize();
 
-    const PORT = process.env.IMAGE_HTTP_PORT || 3002;
+    const PORT = process.env.IMAGE_HTTP_PORT || config.port || 3002;
     app.listen(PORT, () => {
       console.log(`\n🚀 Image Generation HTTP Service running on http://localhost:${PORT}`);
       console.log(`   Health: http://localhost:${PORT}/health`);

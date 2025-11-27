@@ -66,12 +66,17 @@ console.log(`📌 Default provider: ${defaultProvider}`);
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
-// Health check
+// Health check with queue status
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     providers: providerNames,
-    defaultProvider
+    defaultProvider,
+    queue: {
+      length: requestQueue.length,
+      processing: requestQueue.processing,
+      maxSize: requestQueue.maxQueueSize
+    }
   });
 });
 
@@ -171,7 +176,9 @@ app.post('/text_to_speech', async (req, res) => {
     }
 
     // Use queue to prevent concurrent API calls
-    const result = await requestQueue.add(async () => {
+    // Add timeout wrapper to prevent requests from hanging indefinitely
+    const overallTimeout = 60000; // 60 seconds max for entire request
+    const requestPromise = requestQueue.add(async () => {
       return await ttsProvider.generateSpeech({
         text,
         voice,
@@ -180,9 +187,22 @@ app.post('/text_to_speech', async (req, res) => {
       });
     });
 
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`TTS request timeout after ${overallTimeout}ms`)), overallTimeout)
+    );
+
+    const result = await Promise.race([requestPromise, timeoutPromise]);
+
     const durationMs = Date.now() - startTime;
 
-    console.log(`✅ [HTTP] Audio generated: ${result.audio_path} (${durationMs}ms)`);
+    // Log with performance warnings
+    if (durationMs > 15000) {
+      console.warn(`⚠️  [HTTP] SLOW: Audio generation took ${durationMs}ms`);
+    } else if (durationMs > 5000) {
+      console.log(`✅ [HTTP] Audio generated: ${result.audio_path} (${durationMs}ms - slower than usual)`);
+    } else {
+      console.log(`✅ [HTTP] Audio generated: ${result.audio_path} (${durationMs}ms)`);
+    }
 
     // Log usage
     await logUsage({
@@ -214,7 +234,16 @@ app.post('/text_to_speech', async (req, res) => {
     res.json(response);
 
   } catch (error) {
-    console.error('❌ [HTTP] TTS error:', error);
+    const durationMs = Date.now() - startTime;
+
+    // Enhanced error logging with context
+    if (error.message.includes('timeout')) {
+      console.error(`❌ [HTTP] TTS TIMEOUT after ${durationMs}ms:`, error.message);
+      console.error(`   Queue status: ${requestQueue.length} waiting, processing: ${requestQueue.processing}`);
+    } else {
+      console.error(`❌ [HTTP] TTS error after ${durationMs}ms:`, error.message);
+    }
+
     res.status(500).json({ error: error.message });
   }
 });
@@ -249,7 +278,7 @@ app.post('/list_tts_voices', async (req, res) => {
 });
 
 // Start server
-const PORT = process.env.TTS_HTTP_PORT || 3001;
+const PORT = process.env.TTS_HTTP_PORT || config.port || 3001;
 app.listen(PORT, () => {
   console.log(`\n🚀 TTS HTTP Service running on http://localhost:${PORT}`);
   console.log(`   Health: http://localhost:${PORT}/health`);

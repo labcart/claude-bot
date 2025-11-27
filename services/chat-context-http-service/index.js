@@ -11,7 +11,20 @@
 
 import express from 'express';
 import { fileURLToPath } from 'url';
-import { dirname } from 'path';
+import { dirname, join } from 'path';
+import { readFileSync } from 'fs';
+
+// Load configuration
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+let config = { port: 3003 };
+try {
+  const configPath = join(__dirname, 'config.json');
+  config = JSON.parse(readFileSync(configPath, 'utf-8'));
+} catch (error) {
+  console.log('ℹ️  No config.json found, using defaults');
+}
 
 // Import from local dist directory
 import { CursorContext } from './dist/core/index.js';
@@ -26,9 +39,6 @@ import {
   handleListTags,
   handleListProjects
 } from './dist/mcp-server/tools.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 console.log('💬 Chat Context HTTP Service starting...');
 
@@ -395,7 +405,7 @@ app.post('/sync_sessions', async (req, res) => {
 });
 
 // Start server
-const PORT = process.env.CHAT_CONTEXT_HTTP_PORT || 3003;
+const PORT = process.env.CHAT_CONTEXT_HTTP_PORT || config.port || 3003;
 app.listen(PORT, () => {
   console.log(`\n🚀 Chat Context HTTP Service running on http://localhost:${PORT}`);
   console.log(`   Health: http://localhost:${PORT}/health`);

@@ -8,6 +8,8 @@ class RequestQueue {
   constructor() {
     this.queue = [];
     this.processing = false;
+    this.maxQueueSize = 50; // Prevent memory issues from unbounded queue growth
+    this.requestTimeout = 90000; // 90 seconds max per request (includes queue wait time)
   }
 
   /**
@@ -17,7 +19,49 @@ class RequestQueue {
    */
   async add(requestFn) {
     return new Promise((resolve, reject) => {
-      this.queue.push({ requestFn, resolve, reject });
+      // Reject if queue is too large to prevent memory issues
+      if (this.queue.length >= this.maxQueueSize) {
+        const error = new Error(`Queue is full (${this.maxQueueSize} requests). Try again later.`);
+        console.error(`❌ [Queue] ${error.message}`);
+        reject(error);
+        return;
+      }
+
+      const startTime = Date.now();
+
+      // Add timeout for this request
+      const timeoutId = setTimeout(() => {
+        const queueIndex = this.queue.findIndex(item => item.requestFn === requestFn);
+        if (queueIndex !== -1) {
+          // Remove from queue if still waiting
+          this.queue.splice(queueIndex, 1);
+          const error = new Error(`Request timeout after ${this.requestTimeout}ms (may have been waiting in queue)`);
+          console.error(`❌ [Queue] ${error.message} - Queue length: ${this.queue.length}`);
+          reject(error);
+        }
+      }, this.requestTimeout);
+
+      // Log queue status if getting backed up
+      if (this.queue.length > 5) {
+        console.warn(`⚠️  [Queue] ${this.queue.length} requests waiting`);
+      }
+
+      this.queue.push({
+        requestFn,
+        resolve: (result) => {
+          clearTimeout(timeoutId);
+          const duration = Date.now() - startTime;
+          if (duration > 10000) {
+            console.warn(`⚠️  [Queue] Request took ${duration}ms (including queue wait time)`);
+          }
+          resolve(result);
+        },
+        reject: (error) => {
+          clearTimeout(timeoutId);
+          reject(error);
+        },
+        startTime
+      });
       this.processNext();
     });
   }

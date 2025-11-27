@@ -1,12 +1,17 @@
 {
+  "port": 3002,
   "provider": "openai",
   "output_format": "png",
   "output_dir": "./image-output",
   "openai": {
-    "model": "dall-e-3",
+    "model": "gpt-image-1",
     "quality": "standard",
     "size": "1024x1024",
     "style": "vivid"
+  },
+  "gemini": {
+    "model": "gemini-3-pro-image-preview",
+    "size": "1024x1024"
   },
   "stability": {
     "engine": "stable-diffusion-xl-1024-v1-0",

@@ -58,13 +58,23 @@ export class OpenAITTSProvider {
     const speedValue = speed || this.config.speed || 1.0;
 
     try {
-      const response = await this.client.audio.speech.create({
+      // Add timeout to prevent hanging on slow/unresponsive API calls
+      const timeout = 30000; // 30 seconds
+      const apiCall = this.client.audio.speech.create({
         model,
         voice: voiceName,
         input: text,
         speed: speedValue,
         response_format: this.config.response_format || 'mp3'
+      }, {
+        timeout: timeout
       });
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`OpenAI API timeout after ${timeout}ms`)), timeout + 1000)
+      );
+
+      const response = await Promise.race([apiCall, timeoutPromise]);
 
       // Generate filename with optional custom prefix
       const timestamp = Date.now();

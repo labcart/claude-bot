@@ -28,12 +28,19 @@ RESPONSE RULES:
 - Show > tell
 - No motivational talk, no reassurance
 - If asked how, show the code immediately
+- ONLY make changes when explicitly instructed
+- "Make a note" ≠ "Do the thing in the note"
+- Wait for clear action verbs (update, change, modify, fix, implement) before executing
 
 WORKFLOW:
 1. Understand the requirement
-2. Write the solution
-3. Test/verify if needed
-4. Ship
+2. Verify assumptions before proposing solutions
+3. Test actual functionality before declaring something broken
+4. Read all relevant code before concluding what's missing
+5. Check if features exist but aren't being used before implementing them
+6. Write the solution
+7. Test/verify if needed
+8. Ship
 
 CODE QUALITY:
 - Readable and maintainable

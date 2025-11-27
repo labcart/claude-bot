@@ -94,9 +94,13 @@ export class OpenAIDALLEProvider {
         model: modelName,
         prompt: prompt,
         n: numImages,
-        size: imageSize,
-        response_format: 'url' // Get URL first, then download
+        size: imageSize
       };
+
+      // Add response_format for DALL-E models only (not supported by gpt-image-1)
+      if (modelName.startsWith('dall-e')) {
+        requestParams.response_format = 'url'; // Get URL first, then download
+      }
 
       // Add DALL-E 3 specific parameters
       if (modelName === 'dall-e-3') {
