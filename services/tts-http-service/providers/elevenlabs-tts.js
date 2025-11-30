@@ -45,7 +45,7 @@ export class ElevenLabsTTSProvider {
    * @param {Object} params
    * @param {string} params.text - Text to convert to speech
    * @param {string} [params.voice] - Voice ID (from ElevenLabs voice library)
-   * @param {number} [params.speed] - Speaking rate (0.25-4.0, mapped to stability/similarity)
+   * @param {number} [params.speed] - Speaking rate (0.7-1.2, clamped to ElevenLabs range)
    * @param {string} [params.filename] - Custom filename prefix (timestamp will be appended)
    * @returns {Promise<Object>} Audio data and metadata
    */
@@ -57,11 +57,15 @@ export class ElevenLabsTTSProvider {
     const voiceId = voice || this.config.voice || 'EXAVITQu4vr4xnSDxMaL'; // Default: Bella
     const modelId = this.config.model || 'eleven_multilingual_v2';
 
-    // ElevenLabs doesn't have speed control the same way
-    // We can adjust stability and similarity_boost instead
+    // ElevenLabs speed range is 0.7-1.2 (unlike OpenAI's 0.25-4.0)
+    // Clamp incoming speed value to valid range
+    let speedValue = speed || this.config.speed || 1.0;
+    speedValue = Math.max(0.7, Math.min(1.2, speedValue));
+
     const voiceSettings = {
       stability: this.config.stability || 0.5,
       similarity_boost: this.config.similarity_boost || 0.75,
+      speed: speedValue,
     };
 
     try {

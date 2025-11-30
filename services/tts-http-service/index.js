@@ -14,6 +14,10 @@ import dotenv from 'dotenv';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 // Import providers from local directory
 import { GoogleTTSProvider } from './providers/google-tts.js';
@@ -61,6 +65,41 @@ if (config.elevenlabs) {
 const providerNames = Object.keys(providers);
 console.log(`🎙️  TTS HTTP Service starting with providers: ${providerNames.join(', ')}`);
 console.log(`📌 Default provider: ${defaultProvider}`);
+
+/**
+ * Post-process audio: normalize levels and convert to OGG/OPUS for Telegram
+ *
+ * @param {string} inputPath - Path to the input MP3 file
+ * @returns {Promise<{path: string, format: string}>} Path to the processed OGG file
+ */
+async function postProcessAudio(inputPath) {
+  const outputPath = inputPath.replace(/\.mp3$/, '.ogg');
+
+  try {
+    // ffmpeg command:
+    // -i input.mp3 : input file
+    // -af loudnorm : normalize audio levels (EBU R128 standard)
+    // -c:a libopus : encode with Opus codec
+    // -b:a 48k : 48kbps bitrate (good quality for voice, small file)
+    // -vbr on : variable bitrate for better quality
+    // -application voip : optimize for voice
+    // -y : overwrite output if exists
+    const cmd = `ffmpeg -i "${inputPath}" -af loudnorm -c:a libopus -b:a 48k -vbr on -application voip -y "${outputPath}"`;
+
+    await execAsync(cmd);
+
+    // Remove the original MP3 to save space
+    await fs.unlink(inputPath);
+
+    console.log(`🔊 [HTTP] Audio post-processed: MP3 → OGG/OPUS with loudnorm`);
+
+    return { path: outputPath, format: 'ogg' };
+  } catch (error) {
+    console.warn(`⚠️  [HTTP] ffmpeg post-processing failed, using original MP3: ${error.message}`);
+    // Fall back to original MP3 if ffmpeg fails
+    return { path: inputPath, format: 'mp3' };
+  }
+}
 
 // Create Express app
 const app = express();
@@ -141,6 +180,7 @@ app.get('/schema', (req, res) => {
 
 // Execute text_to_speech tool
 app.post('/text_to_speech', async (req, res) => {
+  const startTime = Date.now();  // Define before try so catch can access it
   try {
     const { text, provider, voice, speed, include_base64 = false, filename, output_dir } = req.body;
 
@@ -167,8 +207,6 @@ app.post('/text_to_speech', async (req, res) => {
 
     console.log(`🎤 [HTTP] Generating speech with ${selectedProvider}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
 
-    const startTime = Date.now();
-
     // Override output directory if provided in request (allows multi-bot usage)
     if (output_dir) {
       console.log(`📂 [HTTP] Using custom output directory: ${output_dir}`);
@@ -192,6 +230,11 @@ app.post('/text_to_speech', async (req, res) => {
     );
 
     const result = await Promise.race([requestPromise, timeoutPromise]);
+
+    // Post-process audio: normalize levels and convert to OGG/OPUS
+    const processed = await postProcessAudio(result.audio_path);
+    result.audio_path = processed.path;
+    result.format = processed.format;
 
     const durationMs = Date.now() - startTime;
 
@@ -278,7 +321,7 @@ app.post('/list_tts_voices', async (req, res) => {
 });
 
 // Start server
-const PORT = process.env.TTS_HTTP_PORT || config.port || 3001;
+const PORT = process.env.TTS_HTTP_PORT || 3001;
 app.listen(PORT, () => {
   console.log(`\n🚀 TTS HTTP Service running on http://localhost:${PORT}`);
   console.log(`   Health: http://localhost:${PORT}/health`);
