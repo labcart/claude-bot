@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import OpenAI, { toFile } from 'openai';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -120,8 +120,15 @@ export class OpenAIDALLEProvider {
         const imageUrl = imageData.url;
         const revisedPrompt = imageData.revised_prompt || prompt;
 
-        // Download the image
-        const imageBuffer = await this.downloadImage(imageUrl);
+        // Get image buffer - either from URL (DALL-E) or base64 (gpt-image-1)
+        let imageBuffer;
+        if (imageUrl) {
+          imageBuffer = await this.downloadImage(imageUrl);
+        } else if (imageData.b64_json) {
+          imageBuffer = Buffer.from(imageData.b64_json, 'base64');
+        } else {
+          throw new Error('No image data returned from API');
+        }
 
         // Generate filename with optional custom prefix
         const timestamp = Date.now();
@@ -205,50 +212,70 @@ export class OpenAIDALLEProvider {
    * @param {string} params.image - Image file path or base64 string
    * @param {string} params.prompt - Text description of desired edits
    * @param {string} [params.mask] - Mask image path or base64 (optional, for inpainting)
-   * @param {string} [params.size] - Output size (256x256, 512x512, 1024x1024)
+   * @param {string} [params.model] - Model to use (dall-e-2, gpt-image-1)
+   * @param {string} [params.size] - Output size
+   * @param {string} [params.quality] - Quality for gpt-image-1 (low, medium, high)
+   * @param {string} [params.input_fidelity] - Input fidelity for gpt-image-1 (low, high)
    * @param {number} [params.n] - Number of variations (1-10)
    * @param {string} [params.filename] - Custom filename prefix
    * @returns {Promise<Object>} Edited image data and metadata
    */
-  async editImage({ image, prompt, mask, size, n, filename }) {
+  async editImage({ image, prompt, mask, model, size, quality, input_fidelity, n, filename }) {
     if (!this.client) {
       await this.initialize();
     }
 
+    const modelName = model || 'dall-e-2';
     const imageSize = size || '1024x1024';
     const numImages = n || 1;
 
     try {
       // Handle image input (file path or base64)
-      let imageFile;
+      let imageBuffer;
       if (image.startsWith('data:image') || image.startsWith('iVBORw0')) {
         // Base64 string
         const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
-        imageFile = Buffer.from(base64Data, 'base64');
+        imageBuffer = Buffer.from(base64Data, 'base64');
       } else {
         // File path
-        imageFile = await fs.readFile(image);
+        imageBuffer = await fs.readFile(image);
       }
 
       // Handle mask if provided
-      let maskFile;
+      let maskBuffer;
       if (mask) {
         if (mask.startsWith('data:image') || mask.startsWith('iVBORw0')) {
           const base64Data = mask.replace(/^data:image\/\w+;base64,/, '');
-          maskFile = Buffer.from(base64Data, 'base64');
+          maskBuffer = Buffer.from(base64Data, 'base64');
         } else {
-          maskFile = await fs.readFile(mask);
+          maskBuffer = await fs.readFile(mask);
         }
       }
 
+      // Convert buffers to File objects for OpenAI API (required for gpt-image-1)
+      const imageFile = await toFile(imageBuffer, 'image.png', { type: 'image/png' });
+      const maskFile = maskBuffer ? await toFile(maskBuffer, 'mask.png', { type: 'image/png' }) : undefined;
+
       // Build request parameters
       const requestParams = {
+        model: modelName,
         image: imageFile,
         prompt: prompt,
         n: numImages,
-        size: imageSize,
-        response_format: 'url'
+        size: imageSize
       };
+
+      // gpt-image-1 doesn't support response_format, returns base64 by default
+      // dall-e-2 supports URL format
+      if (!modelName.startsWith('gpt-image')) {
+        requestParams.response_format = 'url';
+      }
+
+      // gpt-image-1 specific parameters
+      if (modelName.startsWith('gpt-image')) {
+        if (quality) requestParams.quality = quality;
+        if (input_fidelity) requestParams.input_fidelity = input_fidelity;
+      }
 
       if (maskFile) {
         requestParams.mask = maskFile;
@@ -265,8 +292,15 @@ export class OpenAIDALLEProvider {
         const imageData = response.data[i];
         const imageUrl = imageData.url;
 
-        // Download the image
-        const imageBuffer = await this.downloadImage(imageUrl);
+        // Get image buffer - either from URL (DALL-E 2) or base64 (gpt-image-1)
+        let imageBuffer;
+        if (imageUrl) {
+          imageBuffer = await this.downloadImage(imageUrl);
+        } else if (imageData.b64_json) {
+          imageBuffer = Buffer.from(imageData.b64_json, 'base64');
+        } else {
+          throw new Error('No image data returned from API');
+        }
 
         // Generate filename
         const timestamp = Date.now();
@@ -310,8 +344,10 @@ export class OpenAIDALLEProvider {
           format: images[0].format,
           prompt: prompt,
           provider: 'openai',
-          model_used: 'dall-e-2',
+          model_used: modelName,
           size: imageSize,
+          quality: quality,
+          input_fidelity: input_fidelity,
           file_size_bytes: images[0].file_size_bytes,
           image_url: images[0].image_url
         };
@@ -322,8 +358,10 @@ export class OpenAIDALLEProvider {
           images: images,
           prompt: prompt,
           provider: 'openai',
-          model_used: 'dall-e-2',
+          model_used: modelName,
           size: imageSize,
+          quality: quality,
+          input_fidelity: input_fidelity,
         };
       }
     } catch (error) {
