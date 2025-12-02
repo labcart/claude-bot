@@ -23,6 +23,11 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
+// R2 configuration from environment (passed from claude-client.js)
+const R2_UPLOAD_URL = process.env.R2_UPLOAD_URL || 'http://localhost:8080/assets/upload';
+const CURRENT_USER_ID = process.env.CURRENT_USER_ID || 'anonymous';
+const CURRENT_WORKFLOW_ID = process.env.CURRENT_WORKFLOW_ID || 'general';
+
 // HTTP Service endpoints
 // Build services list based on DISABLE_IMAGE_TOOLS env var
 const IMAGE_TOOLS = {
@@ -182,17 +187,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // Forward request to HTTP service
     console.log(`   → Forwarding to ${service.url}`);
 
-    // Inject the caller's output directory for media generation tools
-    // This makes the services work for any bot/project without hardcoding paths
+    // Build request body with R2 config for media generation tools
     const requestBody = { ...args };
-    if (name === 'text_to_speech' && !args.output_dir) {
-      // Use the directory where the bot server is running
-      requestBody.output_dir = process.cwd() + '/audio-output';
-      console.log(`   📂 Injecting output_dir: ${requestBody.output_dir}`);
-    }
-    if ((name === 'generate_image' || name === 'edit_image') && !args.output_dir) {
-      requestBody.output_dir = process.cwd() + '/image-output';
-      console.log(`   📂 Injecting output_dir: ${requestBody.output_dir}`);
+
+    // For TTS and image tools, pass R2 config so services upload directly
+    if (name === 'text_to_speech' || name === 'generate_image' || name === 'edit_image') {
+      requestBody.r2_config = {
+        upload_url: R2_UPLOAD_URL,
+        user_id: CURRENT_USER_ID,
+        workflow_id: CURRENT_WORKFLOW_ID
+      };
+      console.log(`   ☁️  R2 config: user=${CURRENT_USER_ID}, workflow=${CURRENT_WORKFLOW_ID}`);
     }
 
     const response = await fetch(service.url, {

@@ -12,12 +12,69 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);
+
+/**
+ * Upload a file to R2 storage via HTTP endpoint
+ * @param {string} localPath - Path to the local file
+ * @param {object} r2Config - R2 configuration { upload_url, user_id, workflow_id }
+ * @returns {Promise<{r2_url: string, r2_key: string} | null>} R2 result or null on failure
+ */
+async function uploadToR2(localPath, r2Config) {
+  if (!r2Config || !r2Config.upload_url) {
+    return null;
+  }
+
+  try {
+    const fileContent = fsSync.readFileSync(localPath);
+    const filename = path.basename(localPath);
+    const ext = path.extname(localPath).slice(1);
+
+    // Determine content type
+    const contentTypes = {
+      'mp3': 'audio/mpeg',
+      'ogg': 'audio/ogg',
+      'wav': 'audio/wav',
+      'webm': 'audio/webm'
+    };
+    const contentType = contentTypes[ext] || 'application/octet-stream';
+
+    // Build R2 path
+    const r2Path = r2Config.workflow_id && r2Config.workflow_id !== 'general'
+      ? `users/${r2Config.user_id}/workflows/${r2Config.workflow_id}`
+      : `users/${r2Config.user_id}/files`;
+
+    const uploadUrl = `${r2Config.upload_url}?workflowId=${encodeURIComponent(r2Path)}&filename=${encodeURIComponent(filename)}&contentType=${encodeURIComponent(contentType)}`;
+
+    console.log(`   ☁️  Uploading to R2: ${filename}`);
+
+    const response = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': contentType },
+      body: fileContent
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      // Delete local file after successful upload
+      fsSync.unlinkSync(localPath);
+      console.log(`   ✓ Uploaded to R2: ${result.key}`);
+      return { r2_url: result.signedUrl, r2_key: result.key };
+    } else {
+      console.warn(`   ⚠️  R2 upload failed: ${response.status}`);
+      return null;
+    }
+  } catch (error) {
+    console.warn(`   ⚠️  R2 upload error: ${error.message}`);
+    return null;
+  }
+}
 
 // Import providers from local directory
 import { GoogleTTSProvider } from './providers/google-tts.js';
@@ -182,7 +239,7 @@ app.get('/schema', (req, res) => {
 app.post('/text_to_speech', async (req, res) => {
   const startTime = Date.now();  // Define before try so catch can access it
   try {
-    const { text, provider, voice, speed, include_base64 = false, filename, output_dir } = req.body;
+    const { text, provider, voice, speed, include_base64 = false, filename, output_dir, r2_config } = req.body;
 
     if (!text) {
       return res.status(400).json({ error: 'text parameter is required' });
@@ -261,13 +318,21 @@ app.post('/text_to_speech', async (req, res) => {
     // Build response
     const response = {
       success: result.success,
-      audio_path: result.audio_path,
       format: result.format,
       character_count: result.character_count,
       provider: result.provider,
       voice_used: result.voice_used,
       file_size_bytes: result.file_size_bytes,
     };
+
+    // Upload to R2 if config provided, otherwise return local path
+    const r2Result = await uploadToR2(result.audio_path, r2_config);
+    if (r2Result) {
+      response.r2_url = r2Result.r2_url;
+      response.r2_key = r2Result.r2_key;
+    } else {
+      response.audio_path = result.audio_path;
+    }
 
     // Only include base64 if requested
     if (include_base64) {

@@ -12,8 +12,66 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+
+/**
+ * Upload a file to R2 storage via HTTP endpoint
+ * @param {string} localPath - Path to the local file
+ * @param {object} r2Config - R2 configuration { upload_url, user_id, workflow_id }
+ * @returns {Promise<{r2_url: string, r2_key: string} | null>} R2 result or null on failure
+ */
+async function uploadToR2(localPath, r2Config) {
+  if (!r2Config || !r2Config.upload_url) {
+    return null;
+  }
+
+  try {
+    const fileContent = fsSync.readFileSync(localPath);
+    const filename = path.basename(localPath);
+    const ext = path.extname(localPath).slice(1);
+
+    // Determine content type
+    const contentTypes = {
+      'png': 'image/png',
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'webp': 'image/webp',
+      'gif': 'image/gif'
+    };
+    const contentType = contentTypes[ext] || 'application/octet-stream';
+
+    // Build R2 path
+    const r2Path = r2Config.workflow_id && r2Config.workflow_id !== 'general'
+      ? `users/${r2Config.user_id}/workflows/${r2Config.workflow_id}`
+      : `users/${r2Config.user_id}/files`;
+
+    const uploadUrl = `${r2Config.upload_url}?workflowId=${encodeURIComponent(r2Path)}&filename=${encodeURIComponent(filename)}&contentType=${encodeURIComponent(contentType)}`;
+
+    console.log(`   ☁️  Uploading to R2: ${filename}`);
+
+    const response = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': contentType },
+      body: fileContent
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      // Delete local file after successful upload
+      fsSync.unlinkSync(localPath);
+      console.log(`   ✓ Uploaded to R2: ${result.key}`);
+      return { r2_url: result.signedUrl, r2_key: result.key };
+    } else {
+      console.warn(`   ⚠️  R2 upload failed: ${response.status}`);
+      return null;
+    }
+  } catch (error) {
+    console.warn(`   ⚠️  R2 upload error: ${error.message}`);
+    return null;
+  }
+}
 
 // Import providers from local directory
 import { OpenAIDALLEProvider } from './providers/openai-dalle.js';
@@ -202,7 +260,7 @@ app.get('/schema', (req, res) => {
 // Execute generate_image tool
 app.post('/generate_image', async (req, res) => {
   try {
-    const { prompt, model, size, quality, style, n, include_base64 = false, filename, output_dir } = req.body;
+    const { prompt, model, size, quality, style, n, include_base64 = false, filename, output_dir, r2_config } = req.body;
 
     if (!prompt) {
       return res.status(400).json({ error: 'prompt parameter is required' });
@@ -270,18 +328,36 @@ app.post('/generate_image', async (req, res) => {
     let response;
 
     if (result.count > 1) {
-      // Batch response
-      response = {
-        success: result.success,
-        count: result.count,
-        images: result.images.map(img => ({
-          image_path: img.image_path,
+      // Batch response - upload each image to R2 if configured
+      const images = [];
+      for (const img of result.images) {
+        const imgData = {
           format: img.format,
           revised_prompt: img.revised_prompt,
           file_size_bytes: img.file_size_bytes,
-          image_url: img.image_url,
           ...(include_base64 && { image_base64: img.image_base64 })
-        })),
+        };
+
+        // Upload to R2 if configured
+        if (r2_config && img.image_path) {
+          const r2Result = await uploadToR2(img.image_path, r2_config);
+          if (r2Result) {
+            imgData.r2_url = r2Result.r2_url;
+            imgData.r2_key = r2Result.r2_key;
+          } else {
+            imgData.image_path = img.image_path;
+          }
+        } else {
+          imgData.image_path = img.image_path;
+          imgData.image_url = img.image_url;
+        }
+        images.push(imgData);
+      }
+
+      response = {
+        success: result.success,
+        count: result.count,
+        images,
         prompt: result.prompt,
         provider: result.provider,
         model_used: result.model_used,
@@ -293,7 +369,6 @@ app.post('/generate_image', async (req, res) => {
       // Single image response
       response = {
         success: result.success,
-        image_path: result.image_path,
         format: result.format,
         prompt: result.prompt,
         revised_prompt: result.revised_prompt,
@@ -303,8 +378,21 @@ app.post('/generate_image', async (req, res) => {
         quality: result.quality,
         style: result.style,
         file_size_bytes: result.file_size_bytes,
-        image_url: result.image_url,
       };
+
+      // Upload to R2 if configured
+      if (r2_config && result.image_path) {
+        const r2Result = await uploadToR2(result.image_path, r2_config);
+        if (r2Result) {
+          response.r2_url = r2Result.r2_url;
+          response.r2_key = r2Result.r2_key;
+        } else {
+          response.image_path = result.image_path;
+        }
+      } else {
+        response.image_path = result.image_path;
+        response.image_url = result.image_url;
+      }
 
       // Only include base64 if requested
       if (include_base64) {
@@ -323,7 +411,7 @@ app.post('/generate_image', async (req, res) => {
 // Execute edit_image tool
 app.post('/edit_image', async (req, res) => {
   try {
-    const { image, prompt, negative_prompt, mask, model, size, quality, input_fidelity, n, include_base64 = false, filename, output_dir } = req.body;
+    const { image, prompt, negative_prompt, mask, model, size, quality, input_fidelity, n, include_base64 = false, filename, output_dir, r2_config } = req.body;
 
     if (!image) {
       return res.status(400).json({ error: 'image parameter is required' });
@@ -394,16 +482,34 @@ app.post('/edit_image', async (req, res) => {
     let response;
 
     if (result.count > 1) {
+      // Batch response - upload each image to R2 if configured
+      const images = [];
+      for (const img of result.images) {
+        const imgData = {
+          format: img.format,
+          file_size_bytes: img.file_size_bytes,
+          ...(include_base64 && { image_base64: img.image_base64 })
+        };
+
+        if (r2_config && img.image_path) {
+          const r2Result = await uploadToR2(img.image_path, r2_config);
+          if (r2Result) {
+            imgData.r2_url = r2Result.r2_url;
+            imgData.r2_key = r2Result.r2_key;
+          } else {
+            imgData.image_path = img.image_path;
+          }
+        } else {
+          imgData.image_path = img.image_path;
+          imgData.image_url = img.image_url;
+        }
+        images.push(imgData);
+      }
+
       response = {
         success: result.success,
         count: result.count,
-        images: result.images.map(img => ({
-          image_path: img.image_path,
-          format: img.format,
-          file_size_bytes: img.file_size_bytes,
-          image_url: img.image_url,
-          ...(include_base64 && { image_base64: img.image_base64 })
-        })),
+        images,
         prompt: result.prompt,
         provider: result.provider,
         model_used: result.model_used,
@@ -412,15 +518,27 @@ app.post('/edit_image', async (req, res) => {
     } else {
       response = {
         success: result.success,
-        image_path: result.image_path,
         format: result.format,
         prompt: result.prompt,
         provider: result.provider,
         model_used: result.model_used,
         size: result.size,
         file_size_bytes: result.file_size_bytes,
-        image_url: result.image_url,
       };
+
+      // Upload to R2 if configured
+      if (r2_config && result.image_path) {
+        const r2Result = await uploadToR2(result.image_path, r2_config);
+        if (r2Result) {
+          response.r2_url = r2Result.r2_url;
+          response.r2_key = r2Result.r2_key;
+        } else {
+          response.image_path = result.image_path;
+        }
+      } else {
+        response.image_path = result.image_path;
+        response.image_url = result.image_url;
+      }
 
       if (include_base64) {
         response.image_base64 = result.image_base64;
