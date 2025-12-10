@@ -65,6 +65,23 @@ else
     echo "      Skipping image-gen symlink setup"
 fi
 
+# Install dependencies for HTTP services
+echo "📦 Installing HTTP service dependencies..."
+SERVICES_DIR="$CLAUDE_BOT_DIR/services"
+if [ -d "$SERVICES_DIR" ]; then
+    for service in tts-http-service image-gen-http-service chat-context-http-service; do
+        SERVICE_DIR="$SERVICES_DIR/$service"
+        if [ -d "$SERVICE_DIR" ] && [ -f "$SERVICE_DIR/package.json" ]; then
+            echo "   Installing $service..."
+            (cd "$SERVICE_DIR" && npm install --silent)
+            echo "   ✅ $service dependencies installed"
+        fi
+    done
+else
+    echo "   ⚠️  Services directory not found at: $SERVICES_DIR"
+    echo "      Skipping service dependency installation"
+fi
+
 echo ""
 echo "✅ Setup complete!"
 echo ""

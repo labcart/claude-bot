@@ -252,6 +252,40 @@ export async function handleSyncSessions(api, args) {
     };
 }
 /**
+ * Hide a session
+ */
+export async function handleHideSession(api, args) {
+    if (!args.sessionId) {
+        throw new Error('sessionId is required');
+    }
+    api.setHidden(args.sessionId, true);
+    return {
+        content: [
+            {
+                type: 'text',
+                text: `✓ Session hidden: ${args.sessionId}`,
+            },
+        ],
+    };
+}
+/**
+ * Unhide a session
+ */
+export async function handleUnhideSession(api, args) {
+    if (!args.sessionId) {
+        throw new Error('sessionId is required');
+    }
+    api.setHidden(args.sessionId, false);
+    return {
+        content: [
+            {
+                type: 'text',
+                text: `✓ Session unhidden: ${args.sessionId}`,
+            },
+        ],
+    };
+}
+/**
  * Helper to format dates
  */
 function formatDate(timestamp) {

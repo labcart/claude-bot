@@ -6,7 +6,7 @@
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 4;
 export class MetadataDB {
     dbPath;
     db = null;
@@ -48,7 +48,7 @@ export class MetadataDB {
         const versionRow = this.db.prepare('SELECT version FROM schema_version LIMIT 1').get();
         const currentVersion = versionRow?.version || 0;
         if (currentVersion === 0) {
-            // First time setup - create schema v2 (multi-source from the start)
+            // First time setup - create schema v3 (with hidden support)
             this.db.exec(`
         CREATE TABLE IF NOT EXISTS session_metadata (
           session_id TEXT PRIMARY KEY,
@@ -62,7 +62,8 @@ export class MetadataDB {
           last_accessed INTEGER,
           last_synced_at INTEGER,
           first_message_preview TEXT,
-          message_count INTEGER DEFAULT 0
+          message_count INTEGER DEFAULT 0,
+          hidden INTEGER DEFAULT 0
         );
 
         CREATE INDEX IF NOT EXISTS idx_source ON session_metadata(source);
@@ -98,7 +99,39 @@ export class MetadataDB {
           UPDATE session_metadata SET source = 'cursor' WHERE source IS NULL;
         `);
             }
-            // Update schema version
+            // Update schema version to 2, then fall through to v2->v3 migration
+            this.db.exec(`UPDATE schema_version SET version = 2`);
+        }
+        // Migration from version 2 to version 3 (add hidden column)
+        if (currentVersion === 2 || currentVersion === 1) {
+            const columns = this.db.pragma('table_info(session_metadata)');
+            const hasHidden = columns.some(col => col.name === 'hidden');
+            if (!hasHidden) {
+                this.db.exec(`
+          ALTER TABLE session_metadata ADD COLUMN hidden INTEGER DEFAULT 0;
+          CREATE INDEX IF NOT EXISTS idx_hidden ON session_metadata(hidden);
+        `);
+            }
+            this.db.exec(`UPDATE schema_version SET version = 3`);
+        }
+        // Migration from version 3 to version 4 (add FTS5 full-text search)
+        if (currentVersion === 3 || currentVersion === 2 || currentVersion === 1) {
+            // Check if FTS table exists
+            const ftsExists = this.db.prepare(`
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='session_content_fts'
+            `).get();
+            if (!ftsExists) {
+                console.log('Creating FTS5 full-text search index...');
+                this.db.exec(`
+                    CREATE VIRTUAL TABLE session_content_fts USING fts5(
+                        session_id UNINDEXED,
+                        content,
+                        tokenize='porter unicode61'
+                    );
+                `);
+                console.log('FTS5 table created. Run sync to populate the index.');
+            }
             this.db.exec(`UPDATE schema_version SET version = ${SCHEMA_VERSION}`);
         }
     }
@@ -110,8 +143,8 @@ export class MetadataDB {
         const stmt = db.prepare(`
       INSERT INTO session_metadata (
         session_id, source, nickname, tags, project_path, project_name, has_project,
-        created_at, last_accessed, last_synced_at, first_message_preview, message_count
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        created_at, last_accessed, last_synced_at, first_message_preview, message_count, hidden
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(session_id) DO UPDATE SET
         source = excluded.source,
         nickname = excluded.nickname,
@@ -122,13 +155,14 @@ export class MetadataDB {
         last_accessed = excluded.last_accessed,
         last_synced_at = excluded.last_synced_at,
         first_message_preview = excluded.first_message_preview,
-        message_count = excluded.message_count
+        message_count = excluded.message_count,
+        hidden = excluded.hidden
     `);
         // Validate that source is provided
         if (!metadata.source) {
             throw new Error(`Source is required for session ${metadata.session_id}`);
         }
-        stmt.run(metadata.session_id, metadata.source, metadata.nickname || null, metadata.tags ? JSON.stringify(metadata.tags) : null, metadata.project_path || null, metadata.project_name || null, metadata.has_project ? 1 : 0, metadata.created_at || Date.now(), metadata.last_accessed || Date.now(), metadata.last_synced_at || Date.now(), metadata.first_message_preview || null, metadata.message_count || 0);
+        stmt.run(metadata.session_id, metadata.source, metadata.nickname || null, metadata.tags ? JSON.stringify(metadata.tags) : null, metadata.project_path || null, metadata.project_name || null, metadata.has_project ? 1 : 0, metadata.created_at || Date.now(), metadata.last_accessed || Date.now(), metadata.last_synced_at || Date.now(), metadata.first_message_preview || null, metadata.message_count || 0, metadata.hidden ? 1 : 0);
     }
     /**
      * Get session metadata by ID
@@ -158,7 +192,8 @@ export class MetadataDB {
             last_accessed: row.last_accessed || undefined,
             last_synced_at: row.last_synced_at || undefined,
             first_message_preview: row.first_message_preview || undefined,
-            message_count: row.message_count || undefined
+            message_count: row.message_count || undefined,
+            hidden: Boolean(row.hidden)
         };
     }
     /**
@@ -254,6 +289,18 @@ export class MetadataDB {
         this.upsertSessionMetadata(metadata);
     }
     /**
+     * Set hidden status for a session
+     */
+    setHidden(sessionId, hidden) {
+        const db = this.connect();
+        const stmt = db.prepare('UPDATE session_metadata SET hidden = ? WHERE session_id = ?');
+        const result = stmt.run(hidden ? 1 : 0, sessionId);
+        if (result.changes === 0) {
+            // Session doesn't exist in metadata yet - that's OK, it will be hidden when synced
+            console.log(`Session ${sessionId} not found in metadata, will be hidden when synced`);
+        }
+    }
+    /**
      * Find sessions by tag
      */
     findByTag(tag) {
@@ -294,12 +341,16 @@ export class MetadataDB {
     /**
      * List all projects with session counts
      */
-    listProjects() {
+    listProjects(options = {}) {
         const db = this.connect();
+        let whereClause = 'WHERE project_path IS NOT NULL';
+        if (!options.show_hidden) {
+            whereClause += ' AND (hidden IS NULL OR hidden = 0)';
+        }
         const rows = db.prepare(`
       SELECT project_path, project_name, COUNT(*) as session_count
       FROM session_metadata
-      WHERE project_path IS NOT NULL
+      ${whereClause}
       GROUP BY project_path
       ORDER BY session_count DESC
     `).all();
@@ -316,6 +367,10 @@ export class MetadataDB {
         const db = this.connect();
         let query = 'SELECT * FROM session_metadata WHERE 1=1';
         const params = [];
+        // Filter hidden sessions by default
+        if (!options.show_hidden) {
+            query += ' AND (hidden IS NULL OR hidden = 0)';
+        }
         if (options.project) {
             query += ' AND project_path = ?';
             params.push(options.project);
@@ -329,6 +384,14 @@ export class MetadataDB {
             params.push(options.limit);
         }
         const rows = db.prepare(query).all(...params);
+        return rows.map(row => this.rowToMetadata(row));
+    }
+    /**
+     * List all sessions (no filters, for reindexing)
+     */
+    listAllSessions() {
+        const db = this.connect();
+        const rows = db.prepare('SELECT * FROM session_metadata').all();
         return rows.map(row => this.rowToMetadata(row));
     }
     /**
@@ -363,6 +426,86 @@ export class MetadataDB {
             total_projects: stats.total_projects,
             total_tags: totalTags
         };
+    }
+    /**
+     * Index session content for full-text search
+     */
+    indexSessionContent(sessionId, content) {
+        const db = this.connect();
+        // Delete existing entry for this session
+        db.prepare('DELETE FROM session_content_fts WHERE session_id = ?').run(sessionId);
+        // Insert new content
+        if (content && content.trim()) {
+            db.prepare('INSERT INTO session_content_fts (session_id, content) VALUES (?, ?)').run(sessionId, content);
+        }
+    }
+    /**
+     * Search sessions using full-text search
+     */
+    searchFTS(query, options = {}) {
+        const db = this.connect();
+        // Build FTS query - escape special characters and add wildcards for partial matches
+        const ftsQuery = query
+            .replace(/['"]/g, '')  // Remove quotes
+            .split(/\s+/)
+            .filter(term => term.length > 0)
+            .map(term => `"${term}"*`)  // Add wildcards for prefix matching
+            .join(' ');
+        if (!ftsQuery) {
+            return [];
+        }
+        // Search FTS and join with metadata
+        // Note: snippet(table, col, start, end, ellipsis, num_tokens) - col is 0-based for indexed columns
+        let sql = `
+            SELECT DISTINCT m.*, snippet(session_content_fts, 0, '>>>', '<<<', '...', 30) as match_snippet
+            FROM session_content_fts f
+            JOIN session_metadata m ON f.session_id = m.session_id
+            WHERE session_content_fts MATCH ?
+        `;
+        const params = [ftsQuery];
+        // Filter hidden by default
+        if (!options.show_hidden) {
+            sql += ' AND (m.hidden IS NULL OR m.hidden = 0)';
+        }
+        // Filter by project
+        if (options.project) {
+            sql += ' AND m.project_path = ?';
+            params.push(options.project);
+        }
+        // Order by relevance (bm25 ranking)
+        sql += ' ORDER BY bm25(session_content_fts)';
+        // Limit results
+        if (options.limit) {
+            sql += ' LIMIT ?';
+            params.push(options.limit);
+        }
+        try {
+            const rows = db.prepare(sql).all(...params);
+            return rows.map(row => ({
+                ...this.rowToMetadata(row),
+                match_snippet: row.match_snippet
+            }));
+        } catch (error) {
+            console.error('FTS search error:', error.message);
+            // Fall back to empty results on FTS query errors
+            return [];
+        }
+    }
+    /**
+     * Check if a session is indexed in FTS
+     */
+    isSessionIndexed(sessionId) {
+        const db = this.connect();
+        const row = db.prepare('SELECT 1 FROM session_content_fts WHERE session_id = ? LIMIT 1').get(sessionId);
+        return !!row;
+    }
+    /**
+     * Get count of indexed sessions
+     */
+    getIndexedCount() {
+        const db = this.connect();
+        const row = db.prepare('SELECT COUNT(DISTINCT session_id) as count FROM session_content_fts').get();
+        return row?.count || 0;
     }
     /**
      * Check if database is connected

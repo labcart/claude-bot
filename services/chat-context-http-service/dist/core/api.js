@@ -145,57 +145,38 @@ export class CursorContext {
         };
     }
     /**
-     * Search sessions by content
+     * Search sessions by content using FTS5 full-text search
      */
     async searchSessions(options) {
-        const { query, projectPath, taggedOnly = false, limit, caseSensitive = false } = options;
-        // Get all sessions based on filters
+        const { query, projectPath, taggedOnly = false, limit } = options;
+        // Use FTS5 for full-text search
+        const ftsResults = this.metadataDB.searchFTS(query, {
+            project: projectPath,
+            limit: limit || 50
+        });
+        // If FTS found results, return them
+        if (ftsResults.length > 0) {
+            // Filter by tagged only if requested
+            if (taggedOnly) {
+                return ftsResults.filter(s => s.nickname || (s.tags && s.tags.length > 0));
+            }
+            return ftsResults;
+        }
+        // Fallback: Also search in metadata fields (nickname, project name, tags)
+        // This catches cases where content wasn't indexed yet
         const sessions = await this.listSessions({
             projectPath,
             taggedOnly,
-            limit: undefined // Get all first, then filter
+            limit: undefined
         });
-        // Prepare search query
-        const searchQuery = caseSensitive ? query : query.toLowerCase();
-        // Filter by content
+        const searchQuery = query.toLowerCase();
         const matches = sessions.filter(session => {
-            // Search in nickname
-            if (session.nickname) {
-                const nickname = caseSensitive ? session.nickname : session.nickname.toLowerCase();
-                if (nickname.includes(searchQuery)) {
-                    return true;
-                }
-            }
-            // Search in first message preview
-            if (session.first_message_preview) {
-                const preview = caseSensitive
-                    ? session.first_message_preview
-                    : session.first_message_preview.toLowerCase();
-                if (preview.includes(searchQuery)) {
-                    return true;
-                }
-            }
-            // Search in tags
-            if (session.tags) {
-                for (const tag of session.tags) {
-                    const tagText = caseSensitive ? tag : tag.toLowerCase();
-                    if (tagText.includes(searchQuery)) {
-                        return true;
-                    }
-                }
-            }
-            // Search in project name
-            if (session.project_name) {
-                const projectName = caseSensitive
-                    ? session.project_name
-                    : session.project_name.toLowerCase();
-                if (projectName.includes(searchQuery)) {
-                    return true;
-                }
-            }
+            if (session.nickname?.toLowerCase().includes(searchQuery)) return true;
+            if (session.project_name?.toLowerCase().includes(searchQuery)) return true;
+            if (session.first_message_preview?.toLowerCase().includes(searchQuery)) return true;
+            if (session.tags?.some(tag => tag.toLowerCase().includes(searchQuery))) return true;
             return false;
         });
-        // Apply limit
         return limit ? matches.slice(0, limit) : matches;
     }
     /**
@@ -309,6 +290,12 @@ export class CursorContext {
         this.metadataDB.removeTag(sessionId, tag);
     }
     /**
+     * Set hidden status for a session
+     */
+    setHidden(sessionId, hidden) {
+        this.metadataDB.setHidden(sessionId, hidden);
+    }
+    /**
      * Get all available projects
      */
     getProjects() {
@@ -374,6 +361,9 @@ export class CursorContext {
                 last_synced_at: Date.now()
             };
             this.metadataDB.upsertSessionMetadata(metadata);
+            // Index full content for FTS
+            const fullContent = messages.map(m => m.content).join('\n');
+            this.metadataDB.indexSessionContent(metadata.session_id, fullContent);
             return metadata;
         }
         catch (error) {
@@ -413,6 +403,9 @@ export class CursorContext {
                 last_synced_at: Date.now()
             };
             this.metadataDB.upsertSessionMetadata(metadata);
+            // Index full content for FTS
+            const fullContent = unified.map(m => m.content).join('\n');
+            this.metadataDB.indexSessionContent(metadata.session_id, fullContent);
             return metadata;
         }
         catch (error) {
@@ -479,6 +472,47 @@ export class CursorContext {
             }
         }
         return synced;
+    }
+    /**
+     * Reindex all sessions for full-text search
+     * This fetches all message content and populates the FTS index
+     */
+    async reindexFTS(progressCallback) {
+        const allMetadata = this.metadataDB.listAllSessions();
+        let indexed = 0;
+        let errors = 0;
+        for (const meta of allMetadata) {
+            try {
+                const sessionId = meta.session_id;
+                const [source, rawId] = sessionId.includes(':')
+                    ? sessionId.split(':')
+                    : ['cursor', sessionId];
+                let content = '';
+                if (source === 'cursor') {
+                    const bubbles = this.cursorDB.getSessionBubbles(rawId);
+                    if (bubbles && bubbles.length > 0) {
+                        const messages = parseBubbles(bubbles);
+                        content = messages.map(m => m.content).join('\n');
+                    }
+                } else if (source === 'claude') {
+                    const messages = this.claudeCodeDB.getSessionMessages(rawId);
+                    if (messages && messages.length > 0) {
+                        content = messages.map(m => m.content).join('\n');
+                    }
+                }
+                if (content) {
+                    this.metadataDB.indexSessionContent(sessionId, content);
+                    indexed++;
+                }
+                if (progressCallback) {
+                    progressCallback(indexed, allMetadata.length);
+                }
+            } catch (err) {
+                errors++;
+                console.error(`Failed to index ${meta.session_id}:`, err.message);
+            }
+        }
+        return { indexed, errors, total: allMetadata.length };
     }
     /**
      * Close database connections

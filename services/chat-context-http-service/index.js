@@ -37,7 +37,9 @@ import {
   handleRemoveTag,
   handleSyncSessions,
   handleListTags,
-  handleListProjects
+  handleListProjects,
+  handleHideSession,
+  handleUnhideSession
 } from './dist/mcp-server/tools.js';
 
 console.log('💬 Chat Context HTTP Service starting...');
@@ -400,6 +402,30 @@ app.post('/sync_sessions', async (req, res) => {
     res.json({ content: result.content[0].text });
   } catch (error) {
     console.error('❌ [HTTP] Sync sessions error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Execute hide_session tool
+app.post('/hide_session', async (req, res) => {
+  try {
+    console.log(`🙈 [HTTP] Hiding session: ${req.body.sessionId}`);
+    const result = await handleHideSession(api, req.body);
+    res.json({ content: result.content[0].text });
+  } catch (error) {
+    console.error('❌ [HTTP] Hide session error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Execute unhide_session tool
+app.post('/unhide_session', async (req, res) => {
+  try {
+    console.log(`👁️  [HTTP] Unhiding session: ${req.body.sessionId}`);
+    const result = await handleUnhideSession(api, req.body);
+    res.json({ content: result.content[0].text });
+  } catch (error) {
+    console.error('❌ [HTTP] Unhide session error:', error);
     res.status(500).json({ error: error.message });
   }
 });

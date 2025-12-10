@@ -28,6 +28,29 @@ const R2_UPLOAD_URL = process.env.R2_UPLOAD_URL || 'http://localhost:8080/assets
 const CURRENT_USER_ID = process.env.CURRENT_USER_ID || 'anonymous';
 const CURRENT_WORKFLOW_ID = process.env.CURRENT_WORKFLOW_ID || 'general';
 
+// Built-in tool: download_url_to_r2
+// This is handled directly by the router (no HTTP service needed)
+const BUILTIN_TOOLS = {
+  'download_url_to_r2': {
+    name: 'download_url_to_r2',
+    description: 'Download content from a URL and save it to R2 storage. Useful for saving web images, files, or any URL content to permanent storage. Returns a public URL that never expires.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description: 'The URL to download content from'
+        },
+        filename: {
+          type: 'string',
+          description: 'Optional filename for the saved file. If not provided, will be extracted from URL or generated.'
+        }
+      },
+      required: ['url']
+    }
+  }
+};
+
 // HTTP Service endpoints
 // Build services list based on DISABLE_IMAGE_TOOLS env var
 const IMAGE_TOOLS = {
@@ -122,6 +145,81 @@ let cachedTools = [];
 let schemasFetched = false;
 
 /**
+ * Handle download_url_to_r2 built-in tool
+ */
+async function handleDownloadUrlToR2(args) {
+  const { url, filename } = args;
+
+  console.log(`📥 Downloading from URL: ${url}`);
+
+  try {
+    // Fetch the content from the URL
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch URL: HTTP ${response.status}`);
+    }
+
+    // Get content type from response
+    const contentType = response.headers.get('content-type') || 'application/octet-stream';
+
+    // Determine filename
+    let finalFilename = filename;
+    if (!finalFilename) {
+      // Try to extract from URL
+      const urlPath = new URL(url).pathname;
+      const urlFilename = urlPath.split('/').pop();
+      if (urlFilename && urlFilename.includes('.')) {
+        finalFilename = urlFilename;
+      } else {
+        // Generate based on content type
+        const ext = contentType.split('/')[1]?.split(';')[0] || 'bin';
+        finalFilename = `download-${Date.now()}.${ext}`;
+      }
+    }
+
+    // Get content as buffer
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    console.log(`   📦 Downloaded ${buffer.length} bytes (${contentType})`);
+
+    // Upload to R2 via the upload endpoint
+    const formData = new FormData();
+    formData.append('file', new Blob([buffer], { type: contentType }), finalFilename);
+    formData.append('userId', CURRENT_USER_ID);
+    formData.append('workflowId', CURRENT_WORKFLOW_ID);
+
+    const uploadResponse = await fetch(R2_UPLOAD_URL, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!uploadResponse.ok) {
+      const errorText = await uploadResponse.text();
+      throw new Error(`R2 upload failed: ${errorText}`);
+    }
+
+    const uploadResult = await uploadResponse.json();
+
+    console.log(`   ☁️  Uploaded to R2: ${uploadResult.key}`);
+
+    return {
+      success: true,
+      r2_url: uploadResult.signedUrl, // This is now the public URL
+      r2_key: uploadResult.key,
+      source_url: url,
+      filename: finalFilename,
+      content_type: contentType,
+      size_bytes: buffer.length
+    };
+
+  } catch (error) {
+    console.error(`❌ download_url_to_r2 failed:`, error.message);
+    throw error;
+  }
+}
+
+/**
  * Fetch tool schemas from all HTTP services
  */
 async function fetchToolSchemas() {
@@ -129,6 +227,13 @@ async function fetchToolSchemas() {
 
   console.log('📋 Fetching tool schemas from HTTP services...');
   const tools = [];
+
+  // Add built-in tools first
+  for (const tool of Object.values(BUILTIN_TOOLS)) {
+    tools.push(tool);
+    console.log(`   ✓ Registered built-in tool: ${tool.name}`);
+  }
+
   const uniqueSchemaUrls = [...new Set(
     Object.values(HTTP_SERVICES).map(s => s.schemaUrl)
   )];
@@ -150,7 +255,7 @@ async function fetchToolSchemas() {
 
   cachedTools = tools;
   schemasFetched = true;
-  console.log(`✅ Registered ${tools.length} total tools`);
+  console.log(`✅ Registered ${tools.length} total tools (${Object.keys(BUILTIN_TOOLS).length} built-in)`);
   return tools;
 }
 
@@ -166,11 +271,42 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   console.log(`🔀 Routing tool call: ${name}`);
 
+  // Check for built-in tools first
+  if (BUILTIN_TOOLS[name]) {
+    try {
+      let result;
+      if (name === 'download_url_to_r2') {
+        result = await handleDownloadUrlToR2(args);
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      console.error(`❌ Built-in tool ${name} failed:`, error.message);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({ error: error.message, tool: name }, null, 2),
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
   // Find the HTTP service for this tool
   const service = HTTP_SERVICES[name];
 
   if (!service) {
-    const error = `Tool "${name}" not found in router configuration. Available tools: ${Object.keys(HTTP_SERVICES).join(', ')}`;
+    const allTools = [...Object.keys(BUILTIN_TOOLS), ...Object.keys(HTTP_SERVICES)];
+    const error = `Tool "${name}" not found in router configuration. Available tools: ${allTools.join(', ')}`;
     console.error(`❌ ${error}`);
     return {
       content: [
