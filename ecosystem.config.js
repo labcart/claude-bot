@@ -1,9 +1,9 @@
 module.exports = {
   apps: [
     {
-      name: 'lab-bot',
+      name: 'labcart-bot',
       script: './server.js',
-      cwd: '/Users/macbook/play/lab/claude-bot',
+      cwd: __dirname,
       instances: 1,
       autorestart: true,
       watch: false,
