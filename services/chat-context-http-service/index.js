@@ -430,6 +430,155 @@ app.post('/unhide_session', async (req, res) => {
   }
 });
 
+// POST /branch_session - Create a new session branched from an existing one
+app.post('/branch_session', async (req, res) => {
+  let { sourceSessionId, branchAfterMessageUuid, workspacePath } = req.body;
+
+  if (!sourceSessionId || !branchAfterMessageUuid) {
+    return res.status(400).json({
+      error: 'Invalid request',
+      required: { sourceSessionId: 'string', branchAfterMessageUuid: 'string', workspacePath: 'string (optional)' }
+    });
+  }
+
+  // Strip source prefix (claude: or cursor:) from session ID
+  if (sourceSessionId.includes(':')) {
+    sourceSessionId = sourceSessionId.split(':')[1];
+  }
+
+  try {
+    const { spawn } = await import('child_process');
+    const readline = await import('readline');
+    const fs = await import('fs');
+    const path = await import('path');
+    const os = await import('os');
+
+    // Determine workspace directory
+    const workspace = workspacePath || process.env.LABCART_WORKSPACE || process.cwd();
+    const dirName = workspace.replace(/\//g, '-');
+    const sessionsDir = path.join(os.homedir(), '.claude/projects', dirName);
+
+    // Read source session file
+    const sourceFile = path.join(sessionsDir, `${sourceSessionId}.jsonl`);
+    if (!fs.existsSync(sourceFile)) {
+      return res.status(404).json({ error: 'Source session not found', sourceSessionId });
+    }
+
+    const sourceContent = fs.readFileSync(sourceFile, 'utf8');
+    const sourceLines = sourceContent.trim().split('\n').filter(line => line.trim());
+
+    // Find lines up to and including branchAfterMessageUuid
+    let branchLines = [];
+    let foundBranchPoint = false;
+    for (const line of sourceLines) {
+      try {
+        const entry = JSON.parse(line);
+        if (entry.type === 'queue-operation') continue;
+        branchLines.push(line);
+        if (entry.uuid === branchAfterMessageUuid) {
+          foundBranchPoint = true;
+          break;
+        }
+      } catch (e) {}
+    }
+
+    if (!foundBranchPoint) {
+      return res.status(404).json({
+        error: 'Branch point message not found',
+        branchAfterMessageUuid,
+        hint: 'The message UUID was not found in the source session'
+      });
+    }
+
+    console.log(`🌿 [HTTP] Branching session ${sourceSessionId.substring(0, 8)}... at message ${branchAfterMessageUuid.substring(0, 8)}...`);
+    console.log(`   Copying ${branchLines.length} messages to new branch`);
+
+    // Spawn a new Claude session to get a fresh UUID
+    const newSessionPromise = new Promise((resolve, reject) => {
+      const child = spawn('claude', [
+        '--output-format', 'stream-json',
+        '--verbose',
+        '--dangerously-skip-permissions'
+      ], {
+        cwd: workspace,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: true
+      });
+
+      let newSessionId = null;
+      const rl = readline.createInterface({ input: child.stdout });
+
+      rl.on('line', (line) => {
+        try {
+          const data = JSON.parse(line);
+          if (data.type === 'system' && data.session_id) {
+            newSessionId = data.session_id;
+            child.kill('SIGTERM');
+          }
+        } catch (e) {}
+      });
+
+      child.on('close', () => {
+        if (newSessionId) resolve(newSessionId);
+        else reject(new Error('Failed to get new session ID'));
+      });
+
+      child.on('error', reject);
+      child.stdin.write('init\n');
+      child.stdin.end();
+
+      setTimeout(() => {
+        if (!newSessionId) {
+          child.kill('SIGTERM');
+          reject(new Error('Timeout waiting for new session'));
+        }
+      }, 30000);
+    });
+
+    const newSessionId = await newSessionPromise;
+    console.log(`   New session created: ${newSessionId.substring(0, 8)}...`);
+
+    // Update sessionId in all branch lines and write to new file
+    const newFile = path.join(sessionsDir, `${newSessionId}.jsonl`);
+    const updatedLines = branchLines.map(line => {
+      return line.replace(new RegExp(sourceSessionId, 'g'), newSessionId);
+    });
+
+    fs.writeFileSync(newFile, updatedLines.join('\n') + '\n');
+    console.log(`   Branch file created: ${newFile}`);
+
+    res.json({
+      success: true,
+      newSessionId,
+      sourceSessionId,
+      branchAfterMessageUuid,
+      messagesCopied: branchLines.length,
+      message: `Successfully branched session at message ${branchAfterMessageUuid.substring(0, 8)}...`
+    });
+
+  } catch (error) {
+    console.error('❌ [HTTP] Branch session error:', error);
+    res.status(500).json({ error: 'Failed to branch session', details: error.message });
+  }
+});
+
+// Reindex FTS - populate full-text search index for all sessions
+app.post('/reindex_fts', async (req, res) => {
+  try {
+    console.log(`🔍 [HTTP] Reindexing FTS for all sessions...`);
+    const result = await api.reindexFTS((indexed, total) => {
+      if (indexed % 50 === 0) {
+        console.log(`   Progress: ${indexed}/${total}`);
+      }
+    });
+    const content = `✅ FTS Reindex complete!\n\n📊 Results:\n   Indexed: ${result.indexed}\n   Errors: ${result.errors}\n   Total: ${result.total}`;
+    res.json({ content });
+  } catch (error) {
+    console.error('❌ [HTTP] Reindex FTS error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Start server
 const PORT = process.env.CHAT_CONTEXT_HTTP_PORT || config.port || 3003;
 app.listen(PORT, () => {
