@@ -82,39 +82,42 @@ if (process.env.R2_ACCESS_KEY_ID && process.env.R2_BUCKET_NAME) {
   const COORDINATION_URL = process.env.COORDINATION_URL?.replace('/api/servers/register', '/api') || process.env.COORDINATION_URL;
 
   if (USER_ID && COORDINATION_URL) {
-    // WEB UI MODE: Fetch bots from Supabase
-    console.log('🌐 Web UI Mode: Fetching bots from database...');
+    // WEB UI MODE: Fetch agents from Supabase
+    console.log('🌐 Web UI Mode: Fetching agents from database...');
     console.log(`   User ID: ${USER_ID}`);
 
     try {
-      const botsUrl = `${COORDINATION_URL}/bots?userId=${USER_ID}`;
-      const response = await fetch(botsUrl);
+      const agentsUrl = `${COORDINATION_URL}/agents?userId=${USER_ID}`;
+      const response = await fetch(agentsUrl);
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('❌ Error: Failed to fetch bots from database');
+        console.error('❌ Error: Failed to fetch agents from database');
         console.error(`   Status: ${response.status}`);
         console.error(`   Error: ${errorText}\n`);
         process.exit(1);
       }
 
       const data = await response.json();
-      bots = (data.bots || []).filter(bot => bot.active);
+      // Use instances if user has any, otherwise fall back to profiles (catalog)
+      const agents = data.instances?.length > 0
+        ? data.instances.filter(a => a.is_active)
+        : (data.profiles || []).filter(a => a.is_active);
 
-      if (bots.length === 0) {
-        console.error('❌ Error: No active bots found for this user');
-        console.error('   Run: node scripts/init-bots.js to create bots from brain files\n');
+      if (agents.length === 0) {
+        console.error('❌ Error: No active agents found for this user');
+        console.error('   Run: node scripts/init-bots.js to create agent instances\n');
         process.exit(1);
       }
 
-      console.log(`✅ Loaded ${bots.length} bot(s) from database`);
+      console.log(`✅ Loaded ${agents.length} agent(s) from database`);
 
-      // Transform database format to internal format
-      bots = bots.map(bot => ({
-        id: bot.id,
-        brain: bot.id, // Use bot UUID - BrainLoader will load from database
-        webOnly: bot.web_only !== undefined ? bot.web_only : true,
-        active: bot.active,
+      // Transform to internal format
+      bots = agents.map(agent => ({
+        id: agent.id,
+        brain: agent.profile_id || agent.id, // Use profile ID for BrainLoader
+        webOnly: true,
+        active: agent.is_active,
         // Note: workspace is NOT used - it comes from UI per-message
       }));
 
@@ -1892,43 +1895,43 @@ app.post('/sync-bots', async (req, res) => {
       return res.status(400).json({ error: 'USER_ID not configured' });
     }
 
-    console.log(`📡 Syncing bots from database for user ${userId}...`);
+    console.log(`📡 Syncing agents from database for user ${userId}...`);
 
-    // Fetch bots from database
-    const response = await fetch(`${coordinationUrl}/bots?userId=${userId}`);
+    // Fetch agents from database
+    const response = await fetch(`${coordinationUrl}/agents?userId=${userId}`);
 
     if (!response.ok) {
       const error = await response.text();
-      console.error(`❌ Failed to fetch bots: ${error}`);
-      return res.status(500).json({ error: 'Failed to fetch bots from database' });
+      console.error(`❌ Failed to fetch agents: ${error}`);
+      return res.status(500).json({ error: 'Failed to fetch agents from database' });
     }
 
     const data = await response.json();
-    const bots = data.bots || [];
+    // Use instances if available, otherwise profiles
+    const agents = data.instances?.length > 0 ? data.instances : (data.profiles || []);
 
-    // Convert database format to bots.json format
-    const botsConfig = bots
-      .filter(bot => bot.active)
-      .map(bot => ({
-        id: bot.id,
-        name: bot.name,
-        systemPrompt: bot.system_prompt,
-        workspace: bot.workspace || '/opt/lab/claude-bot',
-        webOnly: bot.web_only,
-        token: bot.telegram_token,
-        active: bot.active,
+    // Convert database format to bots.json format (for Telegram mode compatibility)
+    const botsConfig = agents
+      .filter(agent => agent.is_active)
+      .map(agent => ({
+        id: agent.id,
+        name: agent.name,
+        systemPrompt: agent.brain_config,
+        workspace: '/opt/lab/claude-bot',
+        webOnly: true,
+        active: agent.is_active,
       }));
 
     // Write to bots.json
     const botsConfigPath = path.join(__dirname, 'bots.json');
     fs.writeFileSync(botsConfigPath, JSON.stringify(botsConfig, null, 2));
 
-    console.log(`✅ Synced ${botsConfig.length} bots to bots.json`);
+    console.log(`✅ Synced ${botsConfig.length} agents to bots.json`);
 
     res.json({
       success: true,
       synced: botsConfig.length,
-      bots: botsConfig,
+      agents: botsConfig,
     });
 
   } catch (error) {
