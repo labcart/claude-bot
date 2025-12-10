@@ -16,6 +16,8 @@ require('dotenv').config();
 const BotManager = require('./lib/bot-manager');
 const TerminalManager = require('./lib/terminal-manager');
 const { recoverFromRestart } = require('./lib/restart-recovery');
+const WorkflowHandler = require('./lib/workflow-handler');
+const messageStore = require('./lib/message-store');
 const fs = require('fs');
 const path = require('path');
 
@@ -56,6 +58,16 @@ const manager = new BotManager({
 
 // Create terminal manager
 const terminalManager = new TerminalManager();
+
+// Create workflow handler (for marketplace multi-agent workflows)
+const workflowHandler = new WorkflowHandler(manager);
+
+// R2 storage for assets (lazy loaded, requires R2 env vars)
+let r2Storage = null;
+if (process.env.R2_ACCESS_KEY_ID && process.env.R2_BUCKET_NAME) {
+  r2Storage = require('./services/r2-storage');
+  console.log('📦 R2 Storage enabled for asset management');
+}
 
 /**
  * Load Bot Configurations and Initialize
@@ -1922,6 +1934,264 @@ app.post('/sync-bots', async (req, res) => {
   } catch (error) {
     console.error('Error syncing bots:', error);
     res.status(500).json({ error: 'Failed to sync bots', message: error.message });
+  }
+});
+
+// ========== Marketplace Asset Endpoints ==========
+
+// POST /assets/upload - Upload asset to R2 storage
+app.post('/assets/upload', express.raw({ type: '*/*', limit: '50mb' }), async (req, res) => {
+  if (!r2Storage) {
+    return res.status(503).json({ error: 'R2 storage not configured' });
+  }
+
+  const { workflowId, filename, contentType } = req.query;
+
+  if (!workflowId || !filename) {
+    return res.status(400).json({
+      error: 'Missing required params',
+      required: { workflowId: 'string', filename: 'string' }
+    });
+  }
+
+  try {
+    const result = await r2Storage.uploadWorkflowAsset(
+      req.body,
+      workflowId,
+      filename,
+      contentType || 'application/octet-stream'
+    );
+
+    res.json({
+      success: true,
+      key: result.key,
+      signedUrl: result.publicUrl
+    });
+  } catch (error) {
+    console.error('❌ Asset upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /assets/download - Get signed download URL
+app.get('/assets/download', async (req, res) => {
+  if (!r2Storage) {
+    return res.status(503).json({ error: 'R2 storage not configured' });
+  }
+
+  const key = req.query.key;
+
+  if (!key) {
+    return res.status(400).json({ error: 'Asset key is required (pass as ?key=...)' });
+  }
+
+  try {
+    const signedUrl = await r2Storage.getSignedDownloadUrl(key);
+    res.json({ signedUrl });
+  } catch (error) {
+    console.error('❌ Asset fetch error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /assets/presigned-upload - Get presigned URL for direct upload
+app.post('/assets/presigned-upload', async (req, res) => {
+  if (!r2Storage) {
+    return res.status(503).json({ error: 'R2 storage not configured' });
+  }
+
+  const { workflowId, filename, contentType } = req.body;
+
+  if (!workflowId || !filename) {
+    return res.status(400).json({
+      error: 'Missing required fields',
+      required: { workflowId: 'string', filename: 'string' }
+    });
+  }
+
+  try {
+    const ext = filename.split('.').pop() || '';
+    const key = `workflows/${workflowId}/${require('crypto').randomUUID()}.${ext}`;
+    const uploadUrl = await r2Storage.getSignedUploadUrl(key, contentType || 'application/octet-stream');
+
+    res.json({
+      uploadUrl,
+      key,
+      expiresIn: 3600
+    });
+  } catch (error) {
+    console.error('❌ Presigned upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE /assets/delete - Delete an asset
+app.delete('/assets/delete', async (req, res) => {
+  if (!r2Storage) {
+    return res.status(503).json({ error: 'R2 storage not configured' });
+  }
+
+  const key = req.query.key;
+
+  if (!key) {
+    return res.status(400).json({ error: 'Asset key is required (pass as ?key=...)' });
+  }
+
+  try {
+    await r2Storage.deleteFile(key);
+    res.json({ success: true, deleted: key });
+  } catch (error) {
+    console.error('❌ Asset delete error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ========== Marketplace Workflow Endpoints ==========
+
+// POST /workflow/start - Start a new workflow
+app.post('/workflow/start', async (req, res) => {
+  const { userId, goal } = req.body;
+
+  if (!userId || !goal) {
+    return res.status(400).json({
+      error: 'Invalid request',
+      required: { userId: 'string', goal: 'string' }
+    });
+  }
+
+  try {
+    const result = await workflowHandler.startWorkflow({
+      userId,
+      goal,
+      onProgress: () => {} // HTTP doesn't support streaming
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('❌ Workflow start error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /workflow/:workflowId/approve - Approve and execute workflow
+app.post('/workflow/:workflowId/approve', async (req, res) => {
+  const { workflowId } = req.params;
+  const { stepConfigs } = req.body || {};
+
+  try {
+    const result = await workflowHandler.executeWorkflow(workflowId, () => {}, { stepConfigs });
+    res.json(result);
+  } catch (error) {
+    console.error('❌ Workflow approve error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /workflow/:workflowId - Get workflow status
+app.get('/workflow/:workflowId', (req, res) => {
+  const { workflowId } = req.params;
+  const status = workflowHandler.getWorkflowStatus(workflowId);
+
+  if (status) {
+    res.json(status);
+  } else {
+    res.status(404).json({ error: 'Workflow not found' });
+  }
+});
+
+// POST /workflow/:workflowId/cancel - Cancel a workflow
+app.post('/workflow/:workflowId/cancel', (req, res) => {
+  const { workflowId } = req.params;
+
+  workflowHandler.cancelWorkflow(workflowId);
+  res.json({ success: true, message: 'Workflow cancelled' });
+});
+
+// POST /workflow/:workflowId/respond - Respond to discovery questions
+app.post('/workflow/:workflowId/respond', async (req, res) => {
+  const { workflowId } = req.params;
+  const { answers, answer } = req.body;
+
+  const userInput = answers || answer;
+
+  if (!userInput) {
+    return res.status(400).json({ error: 'Missing "answers" or "answer" in request body' });
+  }
+
+  try {
+    const result = await workflowHandler.resumeWorkflow(workflowId, userInput);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ========== Marketplace Agent Endpoints ==========
+
+// POST /agents/create - Create a new agent
+app.post('/agents/create', async (req, res) => {
+  const {
+    userId,
+    slug,
+    name,
+    description,
+    systemPrompt,
+    agentType = 'utility',
+    capabilities = ['text'],
+    inputSchema = null,
+    outputSchema = null
+  } = req.body;
+
+  if (!userId || !slug || !name || !systemPrompt) {
+    return res.status(400).json({
+      error: 'Missing required fields',
+      required: {
+        userId: 'string',
+        slug: 'string (lowercase, alphanumeric with hyphens)',
+        name: 'string',
+        systemPrompt: 'string (at least 10 characters)'
+      }
+    });
+  }
+
+  if (!/^[a-z0-9-]+$/.test(slug)) {
+    return res.status(400).json({
+      error: 'Invalid slug format. Must be lowercase alphanumeric with hyphens.'
+    });
+  }
+
+  try {
+    const newAgent = await workflowHandler.createAgentInDatabase({
+      userId,
+      slug,
+      name,
+      description: description || `Agent: ${name}`,
+      systemPrompt,
+      agentType,
+      capabilities,
+      inputSchema,
+      outputSchema
+    });
+
+    console.log(`✅ [Agent] Created agent "${slug}" for user ${userId}`);
+    res.json({ success: true, agent: newAgent });
+
+  } catch (error) {
+    console.error(`❌ [Agent] Error creating agent:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /agents/:userId - List all agents for a user
+app.get('/agents/:userId', async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const agents = await workflowHandler.getAvailableAgents(userId);
+    res.json({ agents });
+  } catch (error) {
+    console.error(`❌ [Agent] Error listing agents:`, error);
+    res.status(500).json({ error: error.message });
   }
 });
 
