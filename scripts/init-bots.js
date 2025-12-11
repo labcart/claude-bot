@@ -3,9 +3,11 @@
 /**
  * Bot Initialization Script
  *
- * Fetches available agents from marketplace_agents table and creates
- * user instances in my_agents table.
- * Generates bots.json from the agent records.
+ * Creates a single agent instance for the user during install.
+ * Uses the default "claude" agent profile - a vanilla Claude with
+ * security wrapper, no personality steering.
+ *
+ * Generates bots.json from the agent record.
  */
 
 const fs = require('fs');
@@ -23,21 +25,27 @@ if (!USER_ID) {
   process.exit(1);
 }
 
+// Default agent slug to provision during install
+// This is a vanilla Claude with security wrapper, no personality steering
+const DEFAULT_AGENT_SLUG = 'claude';
+
 /**
- * Fetch public agents from marketplace_agents table
+ * Fetch the default agent from marketplace_agents table
+ * Only provisions the default agent, not all marketplace agents
  */
-async function getMarketplaceAgents() {
+async function getDefaultAgent() {
   const { data, error } = await supabase
     .from('marketplace_agents')
     .select('*')
-    .eq('visibility', 'public')
-    .eq('is_active', true);
+    .eq('slug', DEFAULT_AGENT_SLUG)
+    .eq('is_active', true)
+    .single();
 
   if (error) {
-    throw new Error(`Failed to fetch marketplace agents: ${error.message}`);
+    throw new Error(`Failed to fetch default agent (${DEFAULT_AGENT_SLUG}): ${error.message}`);
   }
 
-  return data || [];
+  return data;
 }
 
 /**
@@ -125,47 +133,46 @@ function generateBotsJson(agents, instances) {
 
 /**
  * Main initialization
+ * Creates only ONE agent instance (the default Claude agent)
  */
 async function init() {
-  console.log('🚀 Initializing bots for user:', USER_ID);
+  console.log('🚀 Initializing bot for user:', USER_ID);
   console.log('');
 
-  // 1. Fetch marketplace agents
-  console.log('📂 Fetching marketplace agents...');
-  const marketplaceAgents = await getMarketplaceAgents();
-  console.log(`   Found ${marketplaceAgents.length} public agents`);
+  // 1. Fetch the default agent
+  console.log('📂 Fetching default agent...');
+  const defaultAgent = await getDefaultAgent();
+  console.log(`   Found: ${defaultAgent.name} (${defaultAgent.slug})`);
   console.log('');
 
-  // 2. Check existing instances
+  // 2. Check if instance already exists
   console.log('🔍 Checking existing agent instances...');
-  let existingInstances = await getMyAgents();
+  const existingInstances = await getMyAgents();
   const existingSlugs = new Set(existingInstances.map(i => i.instance_slug));
   console.log(`   Found ${existingInstances.length} existing instances`);
   console.log('');
 
-  // 3. Create instances for any marketplace agents that don't exist yet
-  console.log('📦 Creating agent instances...');
+  // 3. Create instance for default agent if it doesn't exist
+  console.log('📦 Creating agent instance...');
   let created = 0;
   let skipped = 0;
+  let instances = [...existingInstances];
 
-  for (const agent of marketplaceAgents) {
-    if (existingSlugs.has(agent.slug)) {
-      console.log(`   ⏭️  Skipped ${agent.name} (already exists)`);
-      skipped++;
-      continue;
-    }
-
+  if (existingSlugs.has(defaultAgent.slug)) {
+    console.log(`   ⏭️  Skipped ${defaultAgent.name} (already exists)`);
+    skipped++;
+  } else {
     try {
-      const instance = await createAgentInstance(agent);
+      const instance = await createAgentInstance(defaultAgent);
       if (instance) {
-        console.log(`   ✅ Created ${agent.name} (${agent.slug})`);
-        existingInstances.push(instance);
+        console.log(`   ✅ Created ${defaultAgent.name} (${defaultAgent.slug})`);
+        instances.push(instance);
         created++;
       } else {
         skipped++;
       }
     } catch (err) {
-      console.error(`   ❌ Failed to create ${agent.name}:`, err.message);
+      console.error(`   ❌ Failed to create ${defaultAgent.name}:`, err.message);
     }
   }
 
@@ -173,12 +180,12 @@ async function init() {
   console.log(`📊 Summary:`);
   console.log(`   Created: ${created}`);
   console.log(`   Skipped: ${skipped}`);
-  console.log(`   Total instances: ${existingInstances.length}`);
+  console.log(`   Total instances: ${instances.length}`);
   console.log('');
 
-  // 4. Generate bots.json
+  // 4. Generate bots.json with just the default agent
   console.log('📝 Generating bots.json...');
-  generateBotsJson(marketplaceAgents, existingInstances);
+  generateBotsJson([defaultAgent], instances);
   console.log('');
 
   console.log('✨ Initialization complete!');
